@@ -6,6 +6,7 @@ import {
   calculatePNLPercentageForShort,
   getTradeHistory,
 } from "../../Hoobot/Exchanges/Trades";
+import { roundTripPnlAfterFees } from "../../Hoobot/Trading/tradeGates";
 import { Exchange, getExchangeByName } from "../../Hoobot/Exchanges/Exchange";
 
 export default {
@@ -54,27 +55,20 @@ export default {
           let olderTrade: Trade = tradesInDuration[i - 1];
           let lastTrade: Trade = tradesInDuration[i];
           let lastPNL: number = 0;
-          let commission: number = 0;
           if (olderTrade.isBuyer) {
             lastPNL = calculatePNLPercentageForLong(parseFloat(olderTrade.price), parseFloat(lastTrade.price));
           } else if (!olderTrade.isBuyer) {
             lastPNL = calculatePNLPercentageForShort(parseFloat(olderTrade.price), parseFloat(lastTrade.price));
           }
-          if (parseFloat(olderTrade.commission) > 0) {
-            if (olderTrade.commissionAsset === "BNB") {
-              commission += 0.075;
-            } else {
-              commission += 0.1;
-            }
-          }
-          if (parseFloat(lastTrade.commission) > 0) {
-            if (lastTrade.commissionAsset === "BNB") {
-              commission += 0.075;
-            } else {
-              commission += 0.1;
-            }
-          }
-          pnlPercentage += lastPNL - commission;
+          const symbolOptions = options.exchanges
+            ?.find((e) => e.name === exchangeName)
+            ?.symbols?.find((s) => s.name === symbol || s.name.replace("/", "") === symbol.replace("/", ""));
+          pnlPercentage += roundTripPnlAfterFees(
+            lastPNL,
+            olderTrade,
+            lastTrade,
+            symbolOptions?.tradeFeePercentage
+          );
         }
         let msg = "```";
         msg += `PNL% for ${symbol} over ${duration.toUpperCase()}: ${pnlPercentage.toFixed(2)}%.\r\n`;

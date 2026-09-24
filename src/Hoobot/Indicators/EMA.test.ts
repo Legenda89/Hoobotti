@@ -1,4 +1,4 @@
-import { checkEMASignals } from "./EMA";
+import { checkEMASignals, checkTrendSignal } from "./EMA";
 import type { SymbolOptions } from "../Utilities/Args";
 
 const symbolOptions = (enabled = true): SymbolOptions =>
@@ -30,5 +30,11 @@ describe("checkEMASignals", () => {
       symbolOptions()
     );
     expect(sig).toBe("BUY");
+  });
+});
+
+describe("checkTrendSignal", () => {
+  it("returns LONG default when EMA history is too short", () => {
+    expect(checkTrendSignal({ short: [10], long: [9] })).toBe("LONG");
   });
 });

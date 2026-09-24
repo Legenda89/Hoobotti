@@ -1,3 +1,30 @@
+/* =====================================================================
+ * Hoobot - Proprietary License
+ * Copyright (c) 2023 Hoosat Oy. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are not permitted without prior written permission
+ * from Hoosat Oy. Unauthorized reproduction, copying, or use of this
+ * software, in whole or in part, is strictly prohibited. All
+ * modifications in source or binary must be submitted to Hoosat Oy in source format.
+ *
+ * THIS SOFTWARE IS PROVIDED BY HOOSAT OY "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL HOOSAT OY BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * The user of this software uses it at their own risk. Hoosat Oy shall
+ * not be liable for any losses, damages, or liabilities arising from
+ * the use of this software.
+ * ===================================================================== */
+
 import { Candlestick } from "../Exchanges/Candlesticks";
 import { ConfigOptions, SymbolOptions } from "../Utilities/Args";
 import { ConsoleLogger } from "../Utilities/ConsoleLogger";
@@ -31,10 +58,10 @@ export const calculateRSI = (
   length: number = 9,
   smoothingType: string = "SMA",
   smoothing: number = 1,
-  source: string = "close",
+  source: string = "close"
 ): number[] => {
   if (!Array.isArray(candles) || candles?.length <= 0) {
-    return [];
+    return []
   }
   if (length == 0) {
     length = 9;
@@ -115,7 +142,9 @@ export const checkRSISignals = (rsi: number[] | undefined, symbolOptions: Symbol
         return "HOLD";
       }
       check = "HOLD";
-      const rsiValues = rsi.slice(-symbolOptions.indicators.rsi?.history);
+      const histLen = Math.max(1, symbolOptions.indicators.rsi?.history ?? 1);
+      const rsiValues = rsi.slice(-histLen);
+      const currentRsi = rsiValues[rsiValues.length - 1];
       const overboughtTreshold =
         symbolOptions.indicators.rsi.tresholds.overbought !== undefined
           ? symbolOptions.indicators.rsi.tresholds.overbought
@@ -124,21 +153,10 @@ export const checkRSISignals = (rsi: number[] | undefined, symbolOptions: Symbol
         symbolOptions.indicators.rsi.tresholds.oversold !== undefined
           ? symbolOptions.indicators.rsi.tresholds.oversold
           : 30;
-      for (let i = rsiValues.length - 1; i >= 0; i--) {
-        const prevRsi = rsiValues[i];
-        if (prevRsi > overboughtTreshold) {
-          check = "SELL";
-          break;
-        }
-      }
-      if (check === "HOLD") {
-        for (let i = rsiValues.length - 1; i >= 0; i--) {
-          const prevRsi = rsiValues[i];
-          if (prevRsi < oversoldTreshold) {
-            check = "BUY";
-            break;
-          }
-        }
+      if (currentRsi > overboughtTreshold) {
+        check = "SELL";
+      } else if (currentRsi < oversoldTreshold) {
+        check = "BUY";
       }
     }
   }

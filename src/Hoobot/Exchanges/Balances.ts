@@ -1,20 +1,65 @@
+/* =====================================================================
+ * Hoobot - Proprietary License
+ * Copyright (c) 2023 Hoosat Oy. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are not permitted without prior written permission
+ * from Hoosat Oy. Unauthorized reproduction, copying, or use of this
+ * software, in whole or in part, is strictly prohibited. All
+ * modifications in source or binary must be submitted to Hoosat Oy in source format.
+ *
+ * THIS SOFTWARE IS PROVIDED BY HOOSAT OY "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL HOOSAT OY BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * The user of this software uses it at their own risk. Hoosat Oy shall
+ * not be liable for any losses, damages, or liabilities arising from
+ * the use of this software.
+ * ===================================================================== */
+
 import fs from "fs";
 import { toSymbolKey, type ExchangeOptions } from "../Utilities/Args";
-import { Exchange, isBinance, isNonKYC, isDexTrade } from "./Exchange";
+import { Exchange, isBinance, isNonKYC } from "./Exchange";
 import { logToFile } from "../Utilities/LogToFile";
+import { syncBinanceTradeFeesFromAccount } from "./binanceTradeFee";
 
 export interface DatedBalances {
   [date: string]: Balances;
 }
 
 export interface Balance {
+  /**
+   * Kokonaissaldo (available + onOrder). Käytä MTM/dashboard-näyttöön.
+   * Kaupankäyntiin käytä `tradableBalance()` / `available`.
+   */
   crypto: number;
+  /** Vapaa saldo — ainoa määrä jolla voi asettaa uuden toimeksiannon. */
+  available?: number;
+  /** Lukittu avoimiin toimeksiantoihin. */
+  onOrder?: number;
   usdt: number;
 }
 
 export interface Balances {
   [asset: string]: Balance;
 }
+
+/** Kaupankäyntiin: vapaa saldo (fallback: crypto yhteensopivuuteen). */
+export const tradableBalance = (balance: Balance | undefined | null): number => {
+  if (!balance) return 0;
+  const free = balance.available;
+  if (typeof free === "number" && Number.isFinite(free) && free >= 0) return free;
+  const total = balance.crypto;
+  return typeof total === "number" && Number.isFinite(total) ? total : 0;
+};
 
 const isBinanceTimestampAheadError = (error: any): boolean => {
   if (Number(error?.code) === -1021) return true;
@@ -39,6 +84,8 @@ export const getCurrentBalances = async (exchange: Exchange): Promise<Balances> 
   const currentBalances: Balances = {
     USDT: {
       crypto: 0,
+      available: 0,
+      onOrder: 0,
       usdt: 0,
     },
   };
@@ -61,10 +108,14 @@ export const getCurrentBalances = async (exchange: Exchange): Promise<Balances> 
     const symbols = Object.keys(prices);
     for (let i = 0; i < assets.length; i++) {
       const { available, onOrder } = balances[assets[i]];
-      const amount = parseFloat(available) + parseFloat(onOrder);
+      const free = parseFloat(available) || 0;
+      const locked = parseFloat(onOrder) || 0;
+      const amount = free + locked;
       if (amount === 0) {
         currentBalances[assets[i]] = {
           crypto: 0,
+          available: 0,
+          onOrder: 0,
           usdt: 0,
         };
         continue;
@@ -72,6 +123,8 @@ export const getCurrentBalances = async (exchange: Exchange): Promise<Balances> 
       if (assets[i] === "USDT") {
         currentBalances[assets[i]] = {
           crypto: amount,
+          available: free,
+          onOrder: locked,
           usdt: amount,
         };
       } else {
@@ -86,6 +139,8 @@ export const getCurrentBalances = async (exchange: Exchange): Promise<Balances> 
         }
         currentBalances[assets[i]] = {
           crypto: amount,
+          available: free,
+          onOrder: locked,
           usdt: Number.isNaN(fiatAmount) ? 0 : fiatAmount,
         };
       }
@@ -96,10 +151,12 @@ export const getCurrentBalances = async (exchange: Exchange): Promise<Balances> 
     const symbols = prices.map((price) => toSymbolKey(price.symbol));
     if (balances.length > 0) {
       for (const balance of balances) {
-        const amount = parseFloat(balance.available);
+        const amount = parseFloat(balance.available) || 0;
         if (balance.asset === "USDT") {
           currentBalances[balance.asset] = {
             crypto: amount,
+            available: amount,
+            onOrder: 0,
             usdt: amount,
           };
         } else {
@@ -116,6 +173,8 @@ export const getCurrentBalances = async (exchange: Exchange): Promise<Balances> 
           }
           currentBalances[balance.asset] = {
             crypto: amount,
+            available: amount,
+            onOrder: 0,
             usdt: fiatAmount > 0 ? fiatAmount : 0,
           };
         }
@@ -123,36 +182,34 @@ export const getCurrentBalances = async (exchange: Exchange): Promise<Balances> 
     } else {
       // Possibly build empty currentBalances.
     }
-  } else if (isDexTrade(exchange)) {
-    const balances = await exchange.getTradingBalance();
-    for (const balance of balances) {
-      const amount = balance.balances?.available ?? balance.balance_available ?? 0;
-      const iso = balance.currency?.iso3;
-      if (!iso) continue;
-      if (iso === "USDT") {
-        currentBalances[iso] = { crypto: amount, usdt: amount };
-      } else {
-        let fiatAmount = 0;
-        try {
-          const ticker = await exchange.getTicker(iso + "USDT");
-          if (ticker?.last) fiatAmount = ticker.last * amount;
-        } catch {
-          // Asset may not have a USDT pair — leave fiatAmount as 0
-        }
-        currentBalances[iso] = { crypto: amount, usdt: fiatAmount };
-      }
-    }
   }
   const balanceAssets = Object.keys(currentBalances);
   for (const balanceAsset of balanceAssets) {
     if (currentBalances[balanceAsset].crypto === undefined) {
       currentBalances[balanceAsset].crypto = 0;
     }
+    if (currentBalances[balanceAsset].available === undefined) {
+      currentBalances[balanceAsset].available = currentBalances[balanceAsset].crypto;
+    }
+    if (currentBalances[balanceAsset].onOrder === undefined) {
+      currentBalances[balanceAsset].onOrder = 0;
+    }
     if (currentBalances[balanceAsset].usdt === undefined) {
       currentBalances[balanceAsset].usdt = 0;
     }
   }
   return Object.fromEntries(Object.entries(currentBalances).sort((a, b) => b[1].usdt - a[1].usdt));
+};
+
+/** Hae saldot ja päivitä Binance trade fee -% muistissa (live). */
+export const assignCurrentBalances = async (
+  exchange: Exchange,
+  exchangeOptions: ExchangeOptions
+): Promise<Balances> => {
+  const balances = await getCurrentBalances(exchange);
+  exchangeOptions.balances = balances;
+  await syncBinanceTradeFeesFromAccount(exchange, exchangeOptions, balances);
+  return balances;
 };
 
 export const getCurrentBalance = async (exchange: Exchange, asset: string): Promise<Balance> => {
@@ -168,7 +225,7 @@ const BINANCE_BALANCE_DATA_ERROR_REFRESH_MS = 30_000;
  */
 export const createBinanceBalanceDataErrorLogBridge = (
   exchange: Exchange,
-  exchangeOptions: ExchangeOptions,
+  exchangeOptions: ExchangeOptions
 ): ((...args: unknown[]) => void) => {
   let lastRestRefreshAt = 0;
   return (...args: unknown[]): void => {
@@ -181,6 +238,7 @@ export const createBinanceBalanceDataErrorLogBridge = (
     void (async () => {
       try {
         exchangeOptions.balances = await getCurrentBalances(exchange);
+        await syncBinanceTradeFeesFromAccount(exchange, exchangeOptions, exchangeOptions.balances);
         console.log("[Binance] Saldot päivitetty REST-pyynnöllä (balanceData error / user data stream).");
       } catch (err) {
         console.warn("[Binance] Saldopäivitys balanceData-virheen jälkeen epäonnistui:", err);

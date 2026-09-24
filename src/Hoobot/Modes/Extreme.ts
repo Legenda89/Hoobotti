@@ -1,3 +1,8 @@
+/* =====================================================================
+ * Hoobot - Proprietary License
+ * Copyright (c) 2023 Hoosat Oy. All rights reserved.
+ * ===================================================================== */
+
 /**
  * Extreme: agressiivinen quote-ping-pong (ylös ja alas).
  * - Kiinteät EUR-rajat skaalautuvat volatiliteetilla
@@ -14,13 +19,24 @@ import { Exchange } from "../Exchanges/Exchange";
 import { Filter } from "../Exchanges/Filters";
 import { Orderbook } from "../Exchanges/Orderbook";
 import { Balances } from "../Exchanges/Balances";
-import { buy, calculateROI, getTradeHistory, sell, simulateBuy, simulateSell } from "../Exchanges/Trades";
+import {
+  buy,
+  calculateROI,
+  getTradeHistory,
+  sell,
+  simulateBuy,
+  simulateSell,
+} from "../Exchanges/Trades";
 import { simOrderbookFromCandle, simulationTimeframesForSymbol } from "../Simulation/simModeHelpers";
 import { simPriceFromCandle, simSellBaseQuantity } from "../Trading/executionSizing";
 import { ConfigOptions, ExchangeOptions, getMinutesFromInterval, SymbolOptions, toSymbolKey } from "../Utilities/Args";
 import { ConsoleLogger, consoleLogger } from "../Utilities/ConsoleLogger";
 import { symbolFilters } from "../symbolFiltersStore";
-import { estimateQuoteFee, quoteEdgeForRebuy, quotePnlLong } from "./HiLowFixed";
+import {
+  estimateQuoteFee,
+  quoteEdgeForRebuy,
+  quotePnlLong,
+} from "./HiLowFixed";
 
 export type ExtremeConfig = {
   sellProfitQuote: number;
@@ -120,7 +136,10 @@ const bestAsk = (orderBook: Orderbook): number => {
 };
 
 /** Keskimääräinen kynttilän range-% → kerroin 0.65–1.85. */
-export const volatilityMultiplierFromSeries = (series: Candlestick[], lookback: number): number => {
+export const volatilityMultiplierFromSeries = (
+  series: Candlestick[],
+  lookback: number
+): number => {
   const finals = series.filter((c) => c.isFinal).slice(-lookback);
   if (finals.length < 8) return 1;
   let sum = 0;
@@ -149,15 +168,12 @@ const sma = (values: number[]): number => {
 export const inferTrendFromSeries = (
   series: Candlestick[],
   shortLen: number,
-  longLen: number,
+  longLen: number
 ): "LONG" | "SHORT" | "NEUTRAL" => {
   const finals = series.filter((c) => c.isFinal);
   const longN = Math.max(shortLen, longLen, 2);
   if (finals.length < longN) return "NEUTRAL";
-  const closes = finals
-    .slice(-longN)
-    .map((c) => Number(c.close))
-    .filter((p) => p > 0);
+  const closes = finals.slice(-longN).map((c) => Number(c.close)).filter((p) => p > 0);
   if (closes.length < longN) return "NEUTRAL";
   const s = sma(closes.slice(-shortLen));
   const l = sma(closes.slice(-longLen));
@@ -168,7 +184,7 @@ export const inferTrendFromSeries = (
 
 export const trendThresholdMultipliers = (
   trend: "LONG" | "SHORT" | "NEUTRAL",
-  lastTradeIsBuyer: boolean,
+  lastTradeIsBuyer: boolean
 ): { sellMult: number; buyMult: number } => {
   if (trend === "LONG") {
     return lastTradeIsBuyer ? { sellMult: 0.88, buyMult: 1 } : { sellMult: 1, buyMult: 1.12 };
@@ -179,7 +195,11 @@ export const trendThresholdMultipliers = (
   return { sellMult: 1, buyMult: 1 };
 };
 
-export const candlesSinceTrade = (tradeTimeMs: number, latestCandleTimeMs: number, intervalMinutes: number): number => {
+export const candlesSinceTrade = (
+  tradeTimeMs: number,
+  latestCandleTimeMs: number,
+  intervalMinutes: number
+): number => {
   if (!(tradeTimeMs > 0 && latestCandleTimeMs >= tradeTimeMs && intervalMinutes > 0)) return 0;
   const step = intervalMinutes * 60 * 1000;
   return Math.floor((latestCandleTimeMs - tradeTimeMs) / step);
@@ -194,7 +214,7 @@ export const computeWaitEaseFactors = (
   lastTradeIsBuyer: boolean,
   maxLongCandles: number,
   maxCashCandles: number,
-  idleForceCandles: number | null,
+  idleForceCandles: number | null
 ): { sellFactor: number; buyFactor: number; waitProgress: number; escapeActive: boolean } => {
   const escapeAt = lastTradeIsBuyer ? maxLongCandles : maxCashCandles;
   if (waited < escapeAt) {
@@ -226,7 +246,7 @@ export const resolveExtremeThresholds = (
     lastTradeTimeMs: number;
     latestCandleTimeMs: number;
     primaryTf: string;
-  },
+  }
 ): ExtremeResolvedThresholds => {
   let volMult = 1;
   if (cfg.volatilityScale) {
@@ -257,7 +277,7 @@ export const resolveExtremeThresholds = (
     opts.lastTradeIsBuyer,
     cfg.maxLongCandles,
     cfg.maxCashCandles,
-    idleForceCandles,
+    idleForceCandles
   );
 
   let sellProfitQuote = cfg.sellProfitQuote * volMult * trendSellMult;
@@ -282,7 +302,10 @@ export const resolveExtremeThresholds = (
 export type ExtremeSignal = "HOLD" | "TAKE_PROFIT" | "STOP_LOSS" | "FORCE_IDLE";
 
 /** Jos normaali signaali on HOLD ja viimeisestä kaupasta ≥ idleForceCandles → pakota. */
-export const applyIdleForceSignal = (signal: ExtremeSignal, thresholds: ExtremeResolvedThresholds): ExtremeSignal => {
+export const applyIdleForceSignal = (
+  signal: ExtremeSignal,
+  thresholds: ExtremeResolvedThresholds
+): ExtremeSignal => {
   if (signal !== "HOLD") return signal;
   const limit = thresholds.idleForceCandles;
   if (limit == null || limit <= 0) return signal;
@@ -298,7 +321,7 @@ export const evaluateExtremeSignal = (
   baseQty: number,
   orderBook: Orderbook,
   feePct: number,
-  thresholds: ExtremeResolvedThresholds,
+  thresholds: ExtremeResolvedThresholds
 ): ExtremeSignal => {
   if (lastTradeIsBuyer) {
     const pnl = quotePnlLong(entryPrice, baseQty, bestBid(orderBook), feePct);
@@ -332,7 +355,7 @@ const runExtremeTrade = async (
   time: number,
   filter: Filter,
   logger: ConsoleLogger,
-  live?: { discord: Client; exchange: Exchange; orderBook: Orderbook },
+  live?: { discord: Client; exchange: Exchange; orderBook: Orderbook }
 ): Promise<void> => {
   if (!TRADE_TAGS.has(check)) return;
   const tag = check;
@@ -351,22 +374,10 @@ const runExtremeTrade = async (
         processOptions,
         exchangeOptions,
         symbolOptions,
-        undefined,
+        undefined
       );
     } else {
-      await simulateSell(
-        symbol,
-        qty,
-        price,
-        balances,
-        tag,
-        processOptions,
-        exchangeOptions,
-        symbolOptions,
-        time,
-        filter,
-        logger,
-      );
+      await simulateSell(symbol, qty, price, balances, tag, processOptions, exchangeOptions, symbolOptions, time, filter, logger);
     }
   } else {
     const quoteSymbol = symbol.split("/")[1]!;
@@ -383,22 +394,10 @@ const runExtremeTrade = async (
         processOptions,
         exchangeOptions,
         symbolOptions,
-        undefined,
+        undefined
       );
     } else {
-      await simulateBuy(
-        symbol,
-        quoteAmt,
-        price,
-        balances,
-        tag,
-        processOptions,
-        exchangeOptions,
-        symbolOptions,
-        time,
-        filter,
-        logger,
-      );
+      await simulateBuy(symbol, quoteAmt, price, balances, tag, processOptions, exchangeOptions, symbolOptions, time, filter, logger);
     }
   }
 };
@@ -410,7 +409,7 @@ export const simulateExtreme = async (
   exchangeOptions: ExchangeOptions,
   symbolOptions: SymbolOptions,
   balances: Balances,
-  filter: Filter,
+  filter: Filter
 ): Promise<boolean> => {
   if (symbolOptions.enabled === false) return false;
   const symbolKey = toSymbolKey(symbol);
@@ -448,7 +447,7 @@ export const simulateExtreme = async (
       symbolOptions,
       latestCandle.time,
       filter,
-      logger,
+      logger
     );
     return true;
   }
@@ -487,7 +486,7 @@ export const simulateExtreme = async (
     symbolOptions,
     latestCandle.time,
     filter,
-    logger,
+    logger
   );
   if (TRADE_TAGS.has(check)) {
     logger.print();
@@ -503,7 +502,7 @@ export const extreme = async (
   symbol: string,
   processOptions: ConfigOptions,
   exchangeOptions: ExchangeOptions,
-  symbolOptions: SymbolOptions,
+  symbolOptions: SymbolOptions
 ): Promise<boolean> => {
   const filter = symbolFilters[toSymbolKey(symbol)];
   const symbolKey = toSymbolKey(symbol);
@@ -566,7 +565,7 @@ export const extreme = async (
       Date.now(),
       filter,
       log,
-      { discord, exchange, orderBook },
+      { discord, exchange, orderBook }
     );
   }
 

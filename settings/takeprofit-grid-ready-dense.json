@@ -1,0 +1,169 @@
+{
+  "simulationHistoryYears": 3,
+  "includeBaseline": true,
+  "maxVariants": 100,
+  "axes": [
+    {
+      "name": "tp-minimum",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "takeProfit": {
+                    "enabled": true,
+                    "minimum": 1.5
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "takeProfit": {
+                    "enabled": true,
+                    "minimum": 2
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "stopLoss-pnl",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -1.5,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -2,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "timeframes",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "timeframes": [
+                    "5m"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "timeframes": [
+                    "15m"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "timeframes": [
+                    "30m"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "forceAfterDrop",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "takeProfit": {
+                    "enabled": true,
+                    "forceAfterDrop": 0.2
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "takeProfit": {
+                    "enabled": true,
+                    "forceAfterDrop": 0.3
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+}
+}
+}
+}
+}
+}

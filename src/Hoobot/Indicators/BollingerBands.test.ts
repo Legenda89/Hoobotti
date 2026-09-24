@@ -25,12 +25,20 @@ describe("BollingerBands", () => {
     expect(lo.length).toBe(mid.length);
   });
 
-  it("checkBollingerBandsSignals uses lower band series", () => {
-    const bands = calculateBollingerBands(candles, "SMA", 20, 2, "close");
-    const sig = checkBollingerBandsSignals(candles, bands, {
+  it("checkBollingerBandsSignals respects history not length", () => {
+    const wideBands = calculateBollingerBands(candles, "SMA", 20, 2, "close");
+    const spikeCandles = candles.map((c, i) =>
+      i === candles.length - 1 ? { ...c, high: 200, low: 50 } : c
+    ) as Candlestick[];
+    const sigHist1 = checkBollingerBandsSignals(spikeCandles, wideBands, {
       name: "X",
-      indicators: { bb: { enabled: true, length: 3, multiplier: 2, average: "SMA", history: 3, weight: 1 } },
+      indicators: { bb: { enabled: true, length: 20, multiplier: 2, average: "SMA", history: 1, weight: 1 } },
     } as never);
-    expect(["BUY", "SELL", "HOLD", "SKIP"]).toContain(sig);
+    const sigHist3 = checkBollingerBandsSignals(spikeCandles, wideBands, {
+      name: "X",
+      indicators: { bb: { enabled: true, length: 20, multiplier: 2, average: "SMA", history: 3, weight: 1 } },
+    } as never);
+    expect(sigHist1).toBe("SELL");
+    expect(sigHist3).toBe("SELL");
   });
 });

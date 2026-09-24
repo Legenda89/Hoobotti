@@ -9,7 +9,31 @@ const symbolOptions: SymbolOptions = {
 } as SymbolOptions;
 
 describe("checkADXSignals", () => {
-  it("returns directional signal when ADX is strong (not BOTH)", () => {
+  it("returns BUY on bullish DI crossover when ADX is strong", () => {
+    const sig = checkADXSignals(
+      {
+        adx: [28, 30],
+        plusDI: [12, 28],
+        minusDI: [22, 12],
+      },
+      symbolOptions
+    );
+    expect(sig).toBe("BUY");
+  });
+
+  it("returns SELL on bearish DI crossover when ADX is strong", () => {
+    const sig = checkADXSignals(
+      {
+        adx: [24, 26],
+        plusDI: [22, 10],
+        minusDI: [10, 22],
+      },
+      symbolOptions
+    );
+    expect(sig).toBe("SELL");
+  });
+
+  it("returns HOLD without DI crossover even when one side dominates", () => {
     const sig = checkADXSignals(
       {
         adx: [30],
@@ -18,19 +42,6 @@ describe("checkADXSignals", () => {
       },
       symbolOptions
     );
-    expect(sig).toBe("BUY");
-    expect(sig).not.toBe("BOTH");
-  });
-
-  it("returns SELL when minus DI dominates in trending ADX", () => {
-    const sig = checkADXSignals(
-      {
-        adx: [26],
-        plusDI: [10],
-        minusDI: [22],
-      },
-      symbolOptions
-    );
-    expect(sig).toBe("SELL");
+    expect(sig).toBe("HOLD");
   });
 });

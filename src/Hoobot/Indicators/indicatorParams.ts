@@ -1,3 +1,8 @@
+/* =====================================================================
+ * Hoobot - Proprietary License
+ * Copyright (c) 2023 Hoosat Oy. All rights reserved.
+ * ===================================================================== */
+
 import type { SymbolOptions } from "../Utilities/Args";
 
 export const resolveMacdParams = (symbolOptions: SymbolOptions): { fast: number; slow: number; signal: number } => {

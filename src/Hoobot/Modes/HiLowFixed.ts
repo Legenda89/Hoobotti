@@ -1,9 +1,21 @@
+/* =====================================================================
+ * Hoobot - Proprietary License
+ * Copyright (c) 2023 Hoosat Oy. All rights reserved.
+ * ===================================================================== */
+
 import { Client } from "discord.js";
 import { symbolFilters } from "../symbolFiltersStore";
 import { ConsoleLogger } from "../Utilities/ConsoleLogger";
 import { ConfigOptions, ExchangeOptions, SymbolOptions, toSymbolKey } from "../Utilities/Args";
 import { Balances } from "../Exchanges/Balances";
-import { buy, calculateROI, getTradeHistory, sell, simulateBuy, simulateSell } from "../Exchanges/Trades";
+import {
+  buy,
+  calculateROI,
+  getTradeHistory,
+  sell,
+  simulateBuy,
+  simulateSell,
+} from "../Exchanges/Trades";
 import { Exchange } from "../Exchanges/Exchange";
 import { Orderbook } from "../Exchanges/Orderbook";
 import { Candlesticks } from "../Exchanges/Candlesticks";
@@ -36,7 +48,9 @@ export const resolveHilowFixedConfig = (symbolOptions: SymbolOptions): HilowFixe
   return {
     sellProfitQuote: Number.isFinite(sellProfitQuote) && sellProfitQuote > 0 ? sellProfitQuote : 5,
     buyMoveQuote: Number.isFinite(buyMoveQuote) && buyMoveQuote > 0 ? buyMoveQuote : 7,
-    ...(stopLossQuote != null && Number.isFinite(stopLossQuote) && stopLossQuote > 0 ? { stopLossQuote } : {}),
+    ...(stopLossQuote != null && Number.isFinite(stopLossQuote) && stopLossQuote > 0
+      ? { stopLossQuote }
+      : {}),
   };
 };
 
@@ -61,7 +75,12 @@ export const estimateQuoteFee = (notionalQuote: number, feePct: number): number 
 };
 
 /** Long-positio: quote-voitto ennen seuraavaa myyntiä. */
-export const quotePnlLong = (entryPrice: number, baseQty: number, exitBid: number, feePct: number): number => {
+export const quotePnlLong = (
+  entryPrice: number,
+  baseQty: number,
+  exitBid: number,
+  feePct: number
+): number => {
   if (!(entryPrice > 0 && baseQty > 0 && exitBid > 0)) return 0;
   const gross = (exitBid - entryPrice) * baseQty;
   const fees = estimateQuoteFee(entryPrice * baseQty, feePct) + estimateQuoteFee(exitBid * baseQty, feePct);
@@ -69,7 +88,12 @@ export const quotePnlLong = (entryPrice: number, baseQty: number, exitBid: numbe
 };
 
 /** Myynnin jälkeen: kuinka paljon quotea "voitettu" halvemmalla ostohinnalla (sama base-määrä). */
-export const quoteEdgeForRebuy = (sellPrice: number, baseQty: number, ask: number, feePct: number): number => {
+export const quoteEdgeForRebuy = (
+  sellPrice: number,
+  baseQty: number,
+  ask: number,
+  feePct: number
+): number => {
   if (!(sellPrice > 0 && baseQty > 0 && ask > 0)) return 0;
   const gross = (sellPrice - ask) * baseQty;
   const fees = estimateQuoteFee(sellPrice * baseQty, feePct) + estimateQuoteFee(ask * baseQty, feePct);
@@ -84,7 +108,7 @@ export const evaluateHilowFixedSignal = (
   baseQty: number,
   orderBook: Orderbook,
   feePct: number,
-  cfg: HilowFixedConfig,
+  cfg: HilowFixedConfig
 ): HilowFixedSignal => {
   if (lastTradeIsBuyer) {
     const bid = bestBid(orderBook);
@@ -124,7 +148,7 @@ const runHilowFixedTrade = async (
     discord: Client;
     exchange: Exchange;
     orderBook: Orderbook;
-  },
+  }
 ): Promise<void> => {
   if (!HILOW_FIXED_TRADE_TAGS.has(check)) return;
   const tag = check;
@@ -143,22 +167,10 @@ const runHilowFixedTrade = async (
         processOptions,
         exchangeOptions,
         symbolOptions,
-        undefined,
+        undefined
       );
     } else {
-      await simulateSell(
-        symbol,
-        qty,
-        price,
-        balances,
-        tag,
-        processOptions,
-        exchangeOptions,
-        symbolOptions,
-        time,
-        filter,
-        logger,
-      );
+      await simulateSell(symbol, qty, price, balances, tag, processOptions, exchangeOptions, symbolOptions, time, filter, logger);
     }
   } else {
     const quoteSymbol = symbol.split("/")[1]!;
@@ -175,22 +187,10 @@ const runHilowFixedTrade = async (
         processOptions,
         exchangeOptions,
         symbolOptions,
-        undefined,
+        undefined
       );
     } else {
-      await simulateBuy(
-        symbol,
-        quoteAmt,
-        price,
-        balances,
-        tag,
-        processOptions,
-        exchangeOptions,
-        symbolOptions,
-        time,
-        filter,
-        logger,
-      );
+      await simulateBuy(symbol, quoteAmt, price, balances, tag, processOptions, exchangeOptions, symbolOptions, time, filter, logger);
     }
   }
 };
@@ -202,7 +202,7 @@ export const simulateHilowFixed = async (
   exchangeOptions: ExchangeOptions,
   symbolOptions: SymbolOptions,
   balances: Balances,
-  filter: Filter,
+  filter: Filter
 ): Promise<boolean> => {
   if (symbolOptions.enabled === false) return false;
   const symbolKey = toSymbolKey(symbol);
@@ -240,7 +240,7 @@ export const simulateHilowFixed = async (
       symbolOptions,
       latestCandle.time,
       filter,
-      logger,
+      logger
     );
     return true;
   }
@@ -271,7 +271,7 @@ export const simulateHilowFixed = async (
     symbolOptions,
     latestCandle.time,
     filter,
-    logger,
+    logger
   );
   if (HILOW_FIXED_TRADE_TAGS.has(check)) {
     logger.print();
@@ -287,7 +287,7 @@ export const hilowFixed = async (
   symbol: string,
   processOptions: ConfigOptions,
   exchangeOptions: ExchangeOptions,
-  symbolOptions: SymbolOptions,
+  symbolOptions: SymbolOptions
 ) => {
   const filter = symbolFilters[toSymbolKey(symbol)];
   const symbolKey = toSymbolKey(symbol);
@@ -343,7 +343,7 @@ export const hilowFixed = async (
       Date.now(),
       filter,
       consoleLogger,
-      { discord, exchange, orderBook },
+      { discord, exchange, orderBook }
     );
   }
 

@@ -1,0 +1,91 @@
+{
+  "simulationHistoryYears": 1,
+  "includeBaseline": true,
+  "maxVariants": 3000,
+  "axes": [
+    {
+      "name": "takeProfit.minimum",
+      "range": { "from": 0.1, "to": 0.5, "step": 0.1 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "minimum": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "takeProfit.drop",
+      "range": { "from": 0.2, "to": 0.4, "step": 0.05 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "drop": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "takeProfit.forceAfterDrop",
+      "range": { "from": 0.2, "to": 0.4, "step": 0.05 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "takeProfit": {
+                  "enabled": true,
+                  "forceAfterCandles": 0,
+                  "forceAfterDrop": "$value"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "takeProfit.forceMinProfit",
+      "range": { "from": 0.1, "to": 0.4, "step": 0.1 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "forceMinProfit": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "stopLoss.pnl",
+      "range": { "from": -2, "to": -0.8, "step": 0.4 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "stopLoss": { "enabled": true, "pnl": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,3 +1,8 @@
+/* =====================================================================
+ * Hoobot - Proprietary License
+ * Copyright (c) 2023 Hoosat Oy. All rights reserved.
+ * ===================================================================== */
+
 /** Täysi täyttö: FILLED tai lähes koko määrä osittaisessa täytössä. */
 export const FULL_FILL_RATIO = 0.999;
 
@@ -28,7 +33,7 @@ export function isFullOrderFill(status: string, executedQty?: string | number, o
 export function shouldClearTakeProfitAfterOrder(
   status: string,
   executedQty?: string | number,
-  origQty?: string | number,
+  origQty?: string | number
 ): boolean {
   return isFullOrderFill(status, executedQty, origQty);
 }

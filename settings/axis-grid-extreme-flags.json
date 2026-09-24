@@ -1,0 +1,111 @@
+{
+  "simulationHistoryYears": 1,
+  "includeBaseline": true,
+  "maxVariants": 500,
+  "axes": [
+    {
+      "name": "extreme.volatilityScale",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "mode": "extreme",
+              "symbols": [{ "extreme": { "volatilityScale": true } }]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "mode": "extreme",
+              "symbols": [{ "extreme": { "volatilityScale": false } }]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "extreme.trendAdjust",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "mode": "extreme",
+              "symbols": [{ "extreme": { "trendAdjust": true } }]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "mode": "extreme",
+              "symbols": [{ "extreme": { "trendAdjust": false } }]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "extreme.volatilityLookback",
+      "range": { "from": 32, "to": 96, "step": 16 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "extreme",
+            "symbols": [
+              {
+                "extreme": { "volatilityLookback": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "extreme.stopLossQuote",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "mode": "extreme",
+              "symbols": [{ "extreme": {} }]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "mode": "extreme",
+              "symbols": [{ "extreme": { "stopLossQuote": 2 } }]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "mode": "extreme",
+              "symbols": [{ "extreme": { "stopLossQuote": 3 } }]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "mode": "extreme",
+              "symbols": [{ "extreme": { "stopLossQuote": 5 } }]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

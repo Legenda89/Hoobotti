@@ -1,9 +1,21 @@
+/* =====================================================================
+ * Hoobot - Proprietary License
+ * Copyright (c) 2023 Hoosat Oy. All rights reserved.
+ * ===================================================================== */
+
 import { Client } from "discord.js";
 import { symbolFilters } from "../symbolFiltersStore";
 import { ConsoleLogger } from "../Utilities/ConsoleLogger";
 import { ConfigOptions, ExchangeOptions, SymbolOptions, toSymbolKey } from "../Utilities/Args";
 import { Balances } from "../Exchanges/Balances";
-import { buy, calculateROI, getTradeHistory, sell, simulateBuy, simulateSell } from "../Exchanges/Trades";
+import {
+  buy,
+  calculateROI,
+  getTradeHistory,
+  sell,
+  simulateBuy,
+  simulateSell,
+} from "../Exchanges/Trades";
 import { Exchange } from "../Exchanges/Exchange";
 import { checkProfitSignals } from "../Indicators/Profit";
 import { Candlesticks } from "../Exchanges/Candlesticks";
@@ -21,7 +33,7 @@ export const simulateHilow = async (
   exchangeOptions: ExchangeOptions,
   symbolOptions: SymbolOptions,
   balances: Balances,
-  filter: Filter,
+  filter: Filter
 ): Promise<boolean> => {
   if (symbolOptions.enabled === false) return false;
   const symbolKey = toSymbolKey(symbol);
@@ -57,7 +69,7 @@ export const simulateHilow = async (
       symbolOptions,
       latestCandle.time,
       filter,
-      logger,
+      logger
     );
     return true;
   }
@@ -73,7 +85,7 @@ export const simulateHilow = async (
     latestCandle.time,
     exchangeOptions,
     symbolOptions,
-    true,
+    true
   );
 
   if (!HILOW_TRADE_SIGNALS.has(check)) {
@@ -93,7 +105,7 @@ export const simulateHilow = async (
       symbolOptions,
       latestCandle.time,
       filter,
-      logger,
+      logger
     );
   } else {
     const quoteSymbol = symbol.split("/")[1]!;
@@ -108,7 +120,7 @@ export const simulateHilow = async (
       symbolOptions,
       latestCandle.time,
       filter,
-      logger,
+      logger
     );
   }
   return true;
@@ -121,7 +133,7 @@ export const hilow = async (
   symbol: string,
   processOptions: ConfigOptions,
   exchangeOptions: ExchangeOptions,
-  symbolOptions: SymbolOptions,
+  symbolOptions: SymbolOptions
 ) => {
   const filter = symbolFilters[toSymbolKey(symbol)];
   if (exchangeOptions.tradeHistory[toSymbolKey(symbol)] === undefined) {
@@ -164,7 +176,7 @@ export const hilow = async (
     Date.now(),
     exchangeOptions,
     symbolOptions,
-    true,
+    true
   );
 
   if (!HILOW_TRADE_SIGNALS.has(check)) {
@@ -185,7 +197,7 @@ export const hilow = async (
       processOptions,
       exchangeOptions,
       symbolOptions,
-      undefined,
+      undefined
     );
   } else {
     await buy(
@@ -199,7 +211,7 @@ export const hilow = async (
       processOptions,
       exchangeOptions,
       symbolOptions,
-      undefined,
+      undefined
     );
   }
 

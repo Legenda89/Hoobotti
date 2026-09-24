@@ -1,0 +1,18 @@
+{
+  "name": "Hoobot — kehitys",
+  "description": "Toteuttaa hoobot-roadmap.json pending-listan seuraavan kohdan joka kolmas päivä.",
+  "workflow": {
+    "triggers": [
+      {
+        "cron": {
+          "cron": "0 9 */3 * *"
+        }
+      }
+    ],
+    "actions": [],
+    "prompts": [
+      "Kehitä Hoobot-kryptobottia (algorithmic trading, Binance live + simulaatio).\n\nLue ensin:\n- scripts/hoobot-automation-prompt.md\n- hoobot-roadmap.json\n\nAja node scripts/hoobot-next-feature.cjs ja toteuta vain seuraava pending-kohde (pienin priority).\n\nKun valmis:\n- Siirrä kohde pending → completed roadmap-tiedostossa\n- Aja npm test ja npm run build\n- Älä luo git-committia ellei käyttäjä pyydä\n- Älä tallenna API-avaimia tai Discord-tokeneita\n- Kerro lyhyesti mitä teit ja mikä roadmap-kohde on seuraavaksi"
+    ],
+    "memoryEnabled": true
+  }
+}

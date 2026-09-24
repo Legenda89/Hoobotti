@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "project": "hoobot",
+  "description": "Roadmap for Hoobot development.",
+  "automation": {
+    "schedule": "0 9 */3 * *",
+    "scheduleHuman": "Joka kolmas päivä klo 9:00",
+    "promptFile": "scripts/hoobot-automation-prompt.md",
+    "workflowFile": "scripts/hoobot-automation-workflow.json",
+    "cursorAutomationName": "Hoobot — kehitys"
+  },
+  "pending": [],
+  "completed": [
+    {
+      "id": "market-orders",
+      "title": "Market order -tuki (liveOrderExecution, Trades.ts)",
+      "completedAt": "2026-07-06"
+    },
+    {
+      "id": "live-entry-speed",
+      "title": "Live-entryn nopeutus (1m scout, aggressive limit, slippage guard)",
+      "completedAt": "2026-07-06"
+    },
+    {
+      "id": "live-order-ui",
+      "title": "Live order mode -asetus UI:hin",
+      "completedAt": "2026-07-06"
+    },
+    {
+      "id": "validate-live-order",
+      "title": "Validoi liveOrderExecution-asetukset",
+      "completedAt": "2026-07-06"
+    },
+    {
+      "id": "grid-explicit-limit",
+      "title": "Grid käyttää eksplisiittistä limit-tilaa",
+      "completedAt": "2026-07-06"
+    },
+    {
+      "id": "trades-order-tests",
+      "title": "Laajenna order-tilojen testejä",
+      "completedAt": "2026-07-06"
+    },
+    {
+      "id": "sim-docs-order-modes",
+      "title": "Dokumentoi sim vs live order -erot",
+      "completedAt": "2026-07-06"
+    }
+  ]
+}
