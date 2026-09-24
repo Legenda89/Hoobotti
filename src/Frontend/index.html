@@ -374,7 +374,13 @@
                 </select>
               </div>
               <div class="col-md-4">
-                <button type="button" class="btn btn-primary w-100" id="dashboard-refresh">Refresh PNL</button>
+                <button type="button" class="btn btn-primary w-100" id="dashboard-refresh">Päivitä</button>
+              </div>
+              <div class="col-md-4">
+                <div class="form-check mt-4">
+                  <input class="form-check-input" type="checkbox" id="dashboard-auto-refresh" checked>
+                  <label class="form-check-label" for="dashboard-auto-refresh">Automaattinen päivitys (30 s)</label>
+                </div>
               </div>
             </div>
           </div>
@@ -395,6 +401,56 @@
                 </tbody>
               </table>
             </div>
+          </div>
+
+          <div class="config-section mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h5 class="mb-0">Live status</h5>
+              <small class="text-muted" id="dashboard-live-updated">-</small>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-striped table-bordered mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Symbol</th>
+                    <th>Mode</th>
+                    <th>Positio</th>
+                    <th>Order</th>
+                    <th class="text-end">Open orders</th>
+                    <th>Last trade</th>
+                    <th class="text-end">Round-trip PNL</th>
+                    <th>TP</th>
+                    <th>Partial TP</th>
+                    <th>CT block</th>
+                    <th>Guard</th>
+                    <th>Balance</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboard-live-table-body">
+                  <tr><td colspan="12" class="text-muted">Päivitä dashboard</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="config-section mb-4">
+            <h5 class="mb-3">Hinta &amp; toimeksiannot</h5>
+            <div class="row g-3 align-items-end mb-3">
+              <div class="col-md-6">
+                <label class="form-label" for="dashboard-chart-symbol">Symboli</label>
+                <select class="form-select" id="dashboard-chart-symbol">
+                  <option value="">Ladataan…</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <button type="button" class="btn btn-outline-primary w-100" id="dashboard-chart-refresh">Päivitä käyrä</button>
+              </div>
+            </div>
+            <p class="small text-muted mb-2">Aikaväli sama kuin yllä (Duration). 1 päivä = kynttiläkaavio, pidemmät = viivakaavio.</p>
+            <div style="position: relative; height: 380px;">
+              <canvas id="dashboard-price-chart"></canvas>
+            </div>
+            <small class="text-muted d-block mt-2" id="dashboard-price-chart-meta">Valitse symboli ja aikaväli.</small>
           </div>
 
           <div class="config-section">
@@ -425,20 +481,10 @@
               <strong>Grid</strong> ei ole vielä tuettu simulaatiossa. HiLow/Periodic käyttävät oletuksena <code>5m</code>-kyntilöitä, jos symbolille ei ole timeframes-asetusta.
             </p>
             <div class="mb-3">
-              <label for="simulationHistoryYears" class="form-label">Kuinka pitkältä ajalta kynttilät käydään läpi?</label>
-              <select class="form-select form-select-sm" id="simulationHistoryYears" style="max-width: 28rem;" title="Rajaa simulaatio viimeisiin N vuoteen (ladattu data on silti koko Binance Vision -historia, mutta toisto katkaistaan).">
-                <option value="0">Koko ladattu historia (Binance Vision ~2020 → nykyhetki)</option>
-                <option value="0.08333333333333333">Viimeiset 1 kk</option>
-                <option value="0.5">Viimeiset 6 kk</option>
-                <option value="1">Viimeiset 1 vuosi</option>
-                <option value="2">Viimeiset 2 vuotta</option>
-                <option value="3">Viimeiset 3 vuotta</option>
-                <option value="4">Viimeiset 4 vuotta</option>
-                <option value="5">Viimeiset 5 vuotta</option>
-                <option value="7">Viimeiset 7 vuotta</option>
-                <option value="10">Viimeiset 10 vuotta</option>
-              </select>
-              <div class="form-text small text-muted">Arvo tallennetaan kenttään <code class="small">simulationHistoryYears</code> (0 = ei rajaa; 1 kk = 1/12, 6 kk = 0.5). Konsolissa näkyy tarkka aikaväli ajon alussa.</div>
+              <p class="small text-muted mb-2">
+                Historiapituus valitaan <strong>Settings</strong>-sivulla (<code>simulationHistoryYears</code>).
+                Nykyinen: <span id="simulate-history-summary">-</span>
+              </p>
             </div>
             <div class="mb-3 border-top pt-3 mt-3">
               <h6 class="mb-2">Simulaatio-grid (useita parametreja samalla historialla)</h6>
@@ -461,6 +507,14 @@
                 />
               </div>
               <button type="button" class="btn btn-outline-primary btn-sm" id="runSimGridBtn" disabled>Aja grid-simulaatio</button>
+              <div
+                id="sim-grid-resume-wrap"
+                class="alert alert-info small py-2 px-3 mt-2 mb-0"
+                style="display: none; max-width: 42rem;"
+                role="status"
+              >
+                <span id="sim-grid-resume-text"></span>
+              </div>
               <p class="small text-muted mt-2 mb-0" id="sim-grid-status"></p>
               <div
                 id="sim-grid-warnings"
@@ -507,9 +561,10 @@
             </div>
             <p class="small text-muted mt-2 mb-0" id="simulate-checkpoint-hint"></p>
             <p class="small text-muted mt-1 mb-0" id="simulate-resume-help">
-              <strong>Jatkaminen:</strong> vaatii tiedoston <code>simulation/simulate-checkpoint.json</code>.
-              Keskeytys (Stop) tallentaa tilan vain, kun replay on jo käynnissä (ei keskellä alkulatausta). Stop-loss /
-              stopTrading voi tyhjentää checkpointin — silloin täytyy ajaa simulaatio alusta.
+              <strong>Yksittäinen sim:</strong> jatko vaatii <code>simulation/simulate-checkpoint.json</code> (tallennetaan 30 s välein + Stop / sammutus).
+              Keskeytys (Stop) tallentaa tilan vain, kun replay on jo käynnissä (ei keskellä alkulatausta).
+              <strong>Grid:</strong> valmiit variantit levyllä + kesken jäänyt variantti <code>simulation/cache/grid-variants/*-checkpoint.json</code> — paina «Jatka gridiä».
+              Stop-loss / stopTrading voi tyhjentää yksittäisen simin checkpointin.
             </p>
             <p class="small text-muted mt-2 mb-0" id="simulate-save-status"></p>
             <p class="small text-warning mt-2 mb-0" id="simulate-running-hint" style="display: none;">Simulaatio voi kestää kauan — odota, älä sulje välilehteä.</p>
@@ -598,7 +653,7 @@
           <h1 class="mb-4">Simulaatioyhteenveto</h1>
           <div class="config-section border rounded p-4 bg-light mt-3">
             <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-              <h5 class="mb-0">Kaikki ajot (paras ROI ylimpänä)</h5>
+              <h5 class="mb-0">Kaikki ajot</h5>
               <div class="d-flex align-items-center flex-wrap gap-2">
                 <label class="small text-muted mb-0" for="sim-summary-min-roi">Min ROI %</label>
                 <input
@@ -608,18 +663,50 @@
                   style="width: 6rem"
                   min="0"
                   step="1"
-                  placeholder="280"
+                  placeholder="tyhjä = kaikki"
+                  autocomplete="off"
                 />
+                <label class="small text-muted mb-0" for="sim-summary-date-from">Alkaen</label>
+                <input
+                  type="date"
+                  class="form-control form-control-sm"
+                  id="sim-summary-date-from"
+                  style="width: 10.5rem"
+                  title="Kalenteripäivä (koko päivä mukaan). Tyhjä = ei rajaa."
+                />
+                <label class="small text-muted mb-0" for="sim-summary-date-to">Päättyen</label>
+                <input
+                  type="date"
+                  class="form-control form-control-sm"
+                  id="sim-summary-date-to"
+                  style="width: 10.5rem"
+                  title="Kalenteripäivä (koko päivä mukaan). Tyhjä = ei rajaa."
+                />
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="sim-summary-date-clear" title="Tyhjennä aikaväli">
+                  Tyhjennä aika
+                </button>
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="sim-summary-refresh-btn">Paivita</button>
+                <div class="form-check form-check-inline mb-0 ms-1">
+                  <input class="form-check-input" type="checkbox" id="sim-summary-auto-refresh" />
+                  <label class="form-check-label small text-muted" for="sim-summary-auto-refresh" title="Päivittää listan 5 min välein vain kun grid on käynnissä tai kesken">
+                    Automaattipäivitys (5 min)
+                  </label>
+                </div>
               </div>
             </div>
+            <div id="sim-summary-grid-partial" class="alert alert-secondary small py-2 mb-3" style="display: none;"></div>
             <p class="small text-muted mt-2 mb-3">
-              Lista yhdistää simulation-kansion simulaatiot ja grid-variantit. Arvot-sarake näyttää variantissa käytetyt
-              asetukset (esim. takeProfit/profit). Sarake <strong>Käytössä</strong>: tähti (★) kun rivi on siirretty liveen
+              Lista yhdistää simulation-kansion simulaatiot ja grid-variantit (oletus: 500 uusinta / valittu lajittelu).
+              Suodata <strong>Alkaen / Päättyen</strong> (koko kalenteripäivä) ja <strong>Min ROI %</strong>; lajittelu
+              (Aika / ROI / Loppusaldo / TP / SL) tapahtuu palvelimella valittujen suodattimien jälkeen. Epäonnistuneet ajot (<code>ok: false</code>) eivät näy. Vaihto mode (hilow / algorithmic) ei poista vanhoja
+              rivejä — ne ovat eri grid-tiedostoissa. Sarakkeet <strong>Kaupat / TP / SL / Myynnit / Ostot</strong> ovat variantin yhteenveto kaikista symboleista; symbolikohtainen erittely on rivin <em>Avaa arvot</em> -kohdassa. Sarake
+              <strong>Arvot</strong> näyttää variantissa käytetyt asetukset. Sarake
+              <strong>Käytössä</strong>: tähti (★) kun rivi on siirretty liveen
               onnistuneesti (<code>hoobot-options.json</code>). Sarake <strong>Simulaatiossa</strong> kirjoittaa rivin variantin
               <code>hoobot-options-simulate.json</code> -tiedostoon valitulle parille (seuraava simulaatio käyttää arvoja).
             </p>
             <div id="sim-summary-best" class="alert alert-info small mb-3" style="display: none;"></div>
+            <div id="sim-summary-filtered" class="alert alert-warning small mb-3" style="display: none;"></div>
             <div id="sim-summary-truncated" class="alert alert-warning small mb-3" style="display: none;"></div>
             <div class="table-responsive">
               <table class="table table-sm table-bordered mb-0">
@@ -641,6 +728,19 @@
                       <button type="button" class="btn btn-link btn-sm p-0 sim-summary-sort" data-key="finalPortfolio" data-dir="asc" title="Pienin ensin">▲</button>
                     </th>
                     <th>Kynttilat</th>
+                    <th title="Kauppoja yhteensä kaikissa symboleissa">Kaupat</th>
+                    <th title="Take profit -sulut">
+                      TP
+                      <button type="button" class="btn btn-link btn-sm p-0 ms-1 sim-summary-sort" data-key="tp" data-dir="desc" title="Eniten TP ensin">▼</button>
+                      <button type="button" class="btn btn-link btn-sm p-0 sim-summary-sort" data-key="tp" data-dir="asc" title="Vähiten TP ensin">▲</button>
+                    </th>
+                    <th title="Stop loss -sulut">
+                      SL
+                      <button type="button" class="btn btn-link btn-sm p-0 ms-1 sim-summary-sort" data-key="sl" data-dir="desc" title="Eniten SL ensin">▼</button>
+                      <button type="button" class="btn btn-link btn-sm p-0 sim-summary-sort" data-key="sl" data-dir="asc" title="Vähiten SL ensin">▲</button>
+                    </th>
+                    <th title="Myyntitoimeksiannot">Myynnit</th>
+                    <th title="Ostotoimeksiannot">Ostot</th>
                     <th>Lahde</th>
                     <th>Arvot</th>
                     <th title="Tähti = rivi siirretty liveen onnistuneesti">Käytössä</th>
@@ -649,7 +749,7 @@
                   </tr>
                 </thead>
                 <tbody id="sim-summary-body">
-                  <tr><td colspan="9" class="text-muted">Ei dataa.</td></tr>
+                  <tr><td colspan="14" class="text-muted">Ei dataa.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -711,8 +811,15 @@
                 </div>
                 <div class="form-check mb-3">
                   <input class="form-check-input" type="checkbox" id="sim-summary-live-all" />
-                  <label class="form-check-label" for="sim-summary-live-all">Siirrä kaikkiin tämän pörssin symboleihin</label>
+                  <label class="form-check-label" for="sim-summary-live-all" id="sim-summary-live-all-label">Siirrä kaikkiin tämän pörssin symboleihin</label>
                 </div>
+                <div class="form-check mb-3 d-none" id="sim-summary-baseline-full-replace-wrap">
+                  <input class="form-check-input" type="checkbox" id="sim-summary-baseline-full-replace" />
+                  <label class="form-check-label text-danger" for="sim-summary-baseline-full-replace">
+                    Korvaa koko live exchanges-lista baselin mukaan (muut pörssit poistuvat)
+                  </label>
+                </div>
+                <p class="small text-muted d-none mb-0" id="sim-summary-baseline-pairs-hint"></p>
                 <div id="sim-summary-live-network-fields">
                 <div class="mb-3">
                   <label class="form-label" for="sim-summary-live-host">Live-botin host / osoite</label>
@@ -871,6 +978,43 @@
             </div>
           </div>
 
+          <!-- Simulation settings (port 5657 only) -->
+          <div class="config-section simulation-settings-section" style="display: none;">
+            <h3>Simulaatio</h3>
+            <p class="text-muted small">
+              Nämä asetukset tallentuvat <strong>settings/hoobot-options-simulate.json</strong> -tiedostoon.
+              Discord-botti ei yhdistä simulaatio-istunnossa (portti 5657) — vältetään WebSocket-virheet sim ajon aikana.
+              Sekä yksittäinen simulaatio että grid käyttävät tätä historiapituutta (grid-tiedoston
+              <code>simulationHistoryYears</code> on varalla vain jos tämä kenttä puuttuu simulate-asetuksista).
+            </p>
+            <div class="mb-3">
+              <label for="simulationHistoryYears" class="form-label">Kuinka pitkältä ajalta kynttilät käydään läpi?</label>
+              <select
+                class="form-select form-select-sm"
+                id="simulationHistoryYears"
+                style="max-width: 28rem"
+                title="Rajaa simulaatio viimeisiin N vuoteen (ladattu data on silti koko Binance Vision -historia, mutta toisto katkaistaan)."
+              >
+                <option value="0">Koko ladattu historia (Binance Vision ~2020 → nykyhetki)</option>
+                <option value="0.08333333333333333">Viimeiset 1 kk</option>
+                <option value="0.5">Viimeiset 6 kk</option>
+                <option value="1">Viimeiset 1 vuosi</option>
+                <option value="2">Viimeiset 2 vuotta</option>
+                <option value="3">Viimeiset 3 vuotta</option>
+                <option value="4">Viimeiset 4 vuotta</option>
+                <option value="5">Viimeiset 5 vuotta</option>
+                <option value="7">Viimeiset 7 vuotta</option>
+                <option value="10">Viimeiset 10 vuotta</option>
+              </select>
+              <div class="form-text small text-muted">
+                Arvo: <code>simulationHistoryYears</code> (0 = ei rajaa; 6 kk = 0.5; 1 kk = 1/12).
+                Konsolissa näkyy tarkka aikaväli ja kynttilärivien määrä ajon alussa.
+                6 kk ≈ puolet 1 vuoden kynttilöistä (esim. ~50k vs ~100k viiden minuutin kynttilöillä).
+              </div>
+              <div id="settings-sim-history-status" class="small text-muted mt-2"></div>
+            </div>
+          </div>
+
           <!-- Discord Settings -->
           <div class="config-section">
             <h3>Discord Settings</h3>
@@ -933,6 +1077,9 @@
 
           <!-- Action Buttons -->
           <div class="mt-4 mb-4">
+            <button type="button" class="btn btn-outline-secondary me-2 simulation-settings-section" id="saveSimSettingsOnlyBtn" style="display: none;">
+              Tallenna simulaatioasetukset
+            </button>
             <button type="button" class="btn btn-success me-2" id="generateConfigButton">Save Configuration</button>
             <button type="button" class="btn btn-outline-danger d-none" id="simulateStopSettingsBtn">
               Stop Simulation
@@ -944,6 +1091,10 @@
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
+    <script src="/js/indicators-preset.js"></script>
+    <script src="/js/live-status.js"></script>
     <script>
       function toggleSidebar() {
         const sidebar = document.querySelector(".sidebar");
@@ -951,6 +1102,260 @@
       }
 
       let dashboardPnlChart = null;
+      let dashboardPriceChart = null;
+
+      function populateDashboardChartSymbols(exchange, preferredSymbol) {
+        const $sel = $("#dashboard-chart-symbol");
+        return $.getJSON("/settings/live-symbols")
+          .done(function (data) {
+            const exchanges = data && Array.isArray(data.exchanges) ? data.exchanges : [];
+            const ex = exchanges.find(function (e) { return e.name === exchange; });
+            const symbols = ex && Array.isArray(ex.symbols) ? ex.symbols : [];
+            const prev = preferredSymbol || $sel.val();
+            $sel.empty();
+            if (!symbols.length) {
+              $sel.append($("<option>").val("").text("Ei symboleja"));
+              return;
+            }
+            symbols.forEach(function (s) {
+              $sel.append($("<option>").val(s.name).text(s.name));
+            });
+            if (prev && symbols.some(function (s) { return s.name === prev; })) {
+              $sel.val(prev);
+            }
+          })
+          .fail(function () {
+            $sel.html("<option value=''>Symbolilista epäonnistui</option>");
+          });
+      }
+
+      function tradeMarkerStyle(t) {
+        const trig = String(t.trigger || "").toUpperCase();
+        if (trig === "STOP_LOSS") {
+          return { label: "SL", color: "rgba(255, 159, 64, 0.95)", border: "rgba(255, 140, 0, 1)", rotation: 45, shape: "rectRot" };
+        }
+        if (trig === "TAKE_PROFIT" || trig === "TAKE_PROFIT_FORCE") {
+          return { label: "TP", color: "rgba(111, 66, 193, 0.95)", border: "rgba(111, 66, 193, 1)", rotation: 0, shape: "star" };
+        }
+        if (t.side === "BUY") {
+          return { label: "BUY", color: "rgba(25, 135, 84, 0.95)", border: "rgba(25, 135, 84, 1)", rotation: 0, shape: "triangle" };
+        }
+        return { label: "SELL", color: "rgba(220, 53, 69, 0.95)", border: "rgba(220, 53, 69, 1)", rotation: 180, shape: "triangle" };
+      }
+
+      function renderDashboardPriceChart(payload) {
+        const ctx = document.getElementById("dashboard-price-chart");
+        const $meta = $("#dashboard-price-chart-meta");
+        if (!ctx || !window.Chart) {
+          return;
+        }
+        if (dashboardPriceChart) {
+          dashboardPriceChart.destroy();
+          dashboardPriceChart = null;
+        }
+        if (!payload || !payload.ok || !Array.isArray(payload.candles) || payload.candles.length === 0) {
+          $meta.text(
+            payload && payload.hint
+              ? payload.hint
+              : "Ei kynttilädataa valitulle aikavälille."
+          );
+          return;
+        }
+
+        const duration = String(payload.duration || "1D").toUpperCase();
+        const useCandles = payload.chartType === "candlestick" || duration === "1D";
+        const timeUnit =
+          duration === "1D" ? "hour" : duration === "1W" ? "day" : duration === "1M" ? "day" : "month";
+
+        const priceDataset = useCandles
+          ? {
+              label: "OHLC (" + (payload.interval || "") + ")",
+              type: "candlestick",
+              data: payload.candles.map(function (c) {
+                return { x: c.time, o: c.open, h: c.high, l: c.low, c: c.close };
+              }),
+              order: 3,
+            }
+          : {
+              label: "Sulkuhinta (" + (payload.interval || "") + ")",
+              type: "line",
+              data: payload.candles.map(function (c) { return { x: c.time, y: c.close }; }),
+              borderColor: "rgba(13, 110, 253, 0.9)",
+              backgroundColor: "rgba(13, 110, 253, 0.08)",
+              fill: true,
+              tension: 0.15,
+              pointRadius: 0,
+              borderWidth: 2,
+              yAxisID: "y",
+              order: 3,
+            };
+
+        const markerGroups = {};
+        (payload.trades || []).forEach(function (t) {
+          const st = tradeMarkerStyle(t);
+          if (!markerGroups[st.label]) {
+            markerGroups[st.label] = { style: st, points: [] };
+          }
+          markerGroups[st.label].points.push({
+            x: t.time,
+            y: t.price,
+            qty: t.qty,
+            trigger: t.trigger,
+            side: t.side,
+          });
+        });
+
+        const markerDatasets = Object.keys(markerGroups).map(function (key) {
+          const g = markerGroups[key];
+          return {
+            type: "scatter",
+            label: g.style.label,
+            data: g.points,
+            backgroundColor: g.style.color,
+            borderColor: g.style.border,
+            pointStyle: g.style.shape,
+            pointRadius: key === "TP" || key === "SL" ? 8 : 9,
+            pointRotation: g.style.rotation,
+            yAxisID: "y",
+            order: 1,
+          };
+        });
+
+        const unrealizedData = (payload.unrealizedSeries || []).map(function (p) {
+          return { x: p.time, y: p.pct };
+        });
+
+        const entryLine =
+          payload.position && payload.position.open && payload.position.entryPrice != null && payload.candles.length
+            ? {
+                type: "line",
+                label: "Entry",
+                data: [
+                  { x: payload.candles[0].time, y: payload.position.entryPrice },
+                  { x: payload.candles[payload.candles.length - 1].time, y: payload.position.entryPrice },
+                ],
+                borderColor: "rgba(108, 117, 125, 0.7)",
+                borderDash: [6, 4],
+                pointRadius: 0,
+                borderWidth: 1,
+                yAxisID: "y",
+                order: 4,
+              }
+            : null;
+
+        const datasets = [priceDataset].concat(markerDatasets);
+        if (entryLine) datasets.push(entryLine);
+        if (unrealizedData.length) {
+          datasets.push({
+            type: "line",
+            label: "Unrealized %",
+            data: unrealizedData,
+            borderColor: "rgba(13, 202, 240, 0.9)",
+            backgroundColor: "rgba(13, 202, 240, 0.1)",
+            fill: false,
+            pointRadius: 0,
+            borderWidth: 1.5,
+            yAxisID: "y1",
+            order: 2,
+          });
+        }
+
+        dashboardPriceChart = new window.Chart(ctx, {
+          type: useCandles ? "candlestick" : "line",
+          data: { datasets: datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "nearest", intersect: false },
+            plugins: {
+              legend: { display: true, position: "top" },
+              tooltip: {
+                callbacks: {
+                  label: function (c) {
+                    const raw = c.raw || {};
+                    if (c.dataset.label === "Unrealized %") {
+                      return "Unrealized " + Number(raw.y).toFixed(2) + "%";
+                    }
+                    if (c.dataset.type === "scatter" || c.dataset.label === "BUY" || c.dataset.label === "SELL" || c.dataset.label === "SL" || c.dataset.label === "TP") {
+                      const parts = [c.dataset.label, "@" + Number(raw.y).toFixed(6)];
+                      if (raw.qty != null) parts.push("qty " + raw.qty);
+                      if (raw.trigger) parts.push(String(raw.trigger));
+                      return parts.join(" · ");
+                    }
+                    if (raw.c != null) {
+                      return "O" + raw.o + " H" + raw.h + " L" + raw.l + " C" + raw.c;
+                    }
+                    return "Hinta " + Number(raw.y).toFixed(6);
+                  },
+                },
+              },
+            },
+            scales: {
+              x: {
+                type: "time",
+                time: { unit: timeUnit },
+                title: { display: true, text: "Aika" },
+              },
+              y: {
+                position: "left",
+                title: { display: true, text: "Hinta" },
+              },
+              y1: {
+                position: "right",
+                display: unrealizedData.length > 0,
+                title: { display: true, text: "Unrealized %" },
+                grid: { drawOnChartArea: false },
+              },
+            },
+          },
+        });
+
+        var posTxt =
+          payload.position && payload.position.open && payload.position.unrealizedPct != null
+            ? " · positio " + payload.position.side + " " + payload.position.unrealizedPct + "%"
+            : "";
+        $meta.text(
+          payload.symbol +
+            " · " +
+            payload.duration +
+            " · " +
+            payload.candles.length +
+            " kynttilää · " +
+            (payload.trades ? payload.trades.length : 0) +
+            " toimeksiantoa" +
+            posTxt
+        );
+      }
+
+      function loadDashboardPriceChart() {
+        const exchange = $("#dashboard-exchange").val() || "binance";
+        const symbol = $("#dashboard-chart-symbol").val();
+        const duration = $("#dashboard-duration").val() || "1D";
+        if (!symbol) {
+          $("#dashboard-price-chart-meta").text("Valitse symboli.");
+          return;
+        }
+        $("#dashboard-price-chart-meta").text("Ladataan käyrää…");
+        $.getJSON("/api/dashboard/price-chart", {
+          exchange: exchange,
+          symbol: symbol,
+          duration: duration,
+        })
+          .done(function (data) {
+            renderDashboardPriceChart(data);
+          })
+          .fail(function (jqXHR) {
+            var msg =
+              jqXHR.responseJSON && jqXHR.responseJSON.error
+                ? jqXHR.responseJSON.error
+                : "Hintakäyrän lataus epäonnistui";
+            $("#dashboard-price-chart-meta").text(msg);
+            if (dashboardPriceChart) {
+              dashboardPriceChart.destroy();
+              dashboardPriceChart = null;
+            }
+          });
+      }
 
       function renderDashboardPnl(summary, durationLabel) {
         const $tbody = $("#dashboard-pnl-table-body");
@@ -1032,20 +1437,60 @@
           });
       }
 
+      function renderDashboardLiveStatus(rows) {
+        if (window.HoobotLiveStatus && typeof window.HoobotLiveStatus.renderDashboardLiveStatus === "function") {
+          window.HoobotLiveStatus.renderDashboardLiveStatus(rows);
+          return;
+        }
+        $("#dashboard-live-table-body").html("<tr><td colspan='12' class='text-danger'>live-status.js ei latautunut</td></tr>");
+      }
+
+      var dashboardAutoRefreshTimer = null;
+      function setDashboardAutoRefresh(enabled) {
+        if (dashboardAutoRefreshTimer) {
+          clearInterval(dashboardAutoRefreshTimer);
+          dashboardAutoRefreshTimer = null;
+        }
+        if (enabled && $(".dashboard-container").is(":visible")) {
+          dashboardAutoRefreshTimer = setInterval(function () {
+            if ($(".dashboard-container").is(":visible")) {
+              loadDashboard();
+            }
+          }, 30000);
+        }
+      }
+
+      function loadDashboardLiveStatus() {
+        const exchange = $("#dashboard-exchange").val() || "binance";
+        $.getJSON("/api/live-status", { exchange: exchange })
+          .done(function (data) {
+            renderDashboardLiveStatus(data && data.symbols ? data.symbols : []);
+            $("#dashboard-live-updated").text(data && data.timestamp ? "Päivitetty " + new Date(data.timestamp).toLocaleTimeString() : "-");
+          })
+          .fail(function (jqXHR) {
+            var msg = jqXHR.responseJSON && jqXHR.responseJSON.error ? jqXHR.responseJSON.error : "Live-tilaa ei voitu hakea";
+            $("#dashboard-live-table-body").html("<tr><td colspan='12' class='text-danger'>" + msg + "</td></tr>");
+            $("#dashboard-live-updated").text("-");
+          });
+      }
+
+      function loadDashboard() {
+        const exchange = $("#dashboard-exchange").val() || "binance";
+        loadDashboardPnl();
+        loadDashboardLiveStatus();
+        populateDashboardChartSymbols(exchange).always(function () {
+          loadDashboardPriceChart();
+        });
+        setDashboardAutoRefresh($("#dashboard-auto-refresh").is(":checked"));
+      }
+
       var SIM_SUMMARY_LIVE_APPLIED_KEY = "hoobot.simSummary.liveApplied";
 
       function simSummaryRowKey(row) {
         if (!row || typeof row !== "object") return "";
         var gridId = row.gridPath || row.file || "";
         var vi = typeof row.variantIndex === "number" ? String(row.variantIndex) : "";
-        return [
-          String(row.source || ""),
-          String(gridId),
-          vi,
-          String(row.roi),
-          String(row.finalPortfolio),
-          String(row.candleRows ?? ""),
-        ].join("|");
+        return [String(row.source || ""), String(gridId), vi, String(row.candleRows ?? "")].join("|");
       }
 
       function loadSimSummaryLiveAppliedMap() {
@@ -1117,7 +1562,171 @@
         });
       }
 
-      function loadSimulationSummary() {
+      var SIM_SUMMARY_AUTO_REFRESH_MS = 5 * 60 * 1000;
+      var simSummaryAutoTimer = null;
+      function simSummaryAutoRefreshEnabled() {
+        return $("#sim-summary-auto-refresh").is(":checked");
+      }
+      function stopSimSummaryAutoRefresh() {
+        if (simSummaryAutoTimer != null) {
+          clearInterval(simSummaryAutoTimer);
+          simSummaryAutoTimer = null;
+        }
+      }
+      function startSimSummaryAutoRefresh() {
+        stopSimSummaryAutoRefresh();
+        if (!simSummaryAutoRefreshEnabled()) return;
+        simSummaryAutoTimer = setInterval(function () {
+          if (!$(".simsummary-container").is(":visible")) return;
+          if (!simSummaryAutoRefreshEnabled()) {
+            stopSimSummaryAutoRefresh();
+            return;
+          }
+          loadSimulationSummary();
+        }, SIM_SUMMARY_AUTO_REFRESH_MS);
+      }
+      function syncSimSummaryAutoRefreshFromGridState(data) {
+        var gp = data && data.gridProgress;
+        var gridActive = gp && (gp.partial === true || data.simGridRunning === true);
+        if (gridActive && simSummaryAutoRefreshEnabled()) {
+          startSimSummaryAutoRefresh();
+        } else if (!gridActive || !simSummaryAutoRefreshEnabled()) {
+          stopSimSummaryAutoRefresh();
+        }
+      }
+
+        function simSummaryLocalDateToIsoStart(dateVal) {
+          var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateVal || "").trim());
+          if (!m) return null;
+          return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0).toISOString();
+        }
+        function simSummaryLocalDateToIsoEnd(dateVal) {
+          var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateVal || "").trim());
+          if (!m) return null;
+          return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59, 999).toISOString();
+        }
+        function simSummaryDateQueryParams(summaryQuery) {
+          var dateFrom = String($("#sim-summary-date-from").val() || "").trim();
+          var dateTo = String($("#sim-summary-date-to").val() || "").trim();
+          if (dateFrom) {
+            var fromIso = simSummaryLocalDateToIsoStart(dateFrom);
+            if (fromIso) summaryQuery.savedFrom = fromIso;
+          }
+          if (dateTo) {
+            var toIso = simSummaryLocalDateToIsoEnd(dateTo);
+            if (toIso) summaryQuery.savedTo = toIso;
+          }
+        }
+      var SIM_SUMMARY_TABLE_COLSPAN = 14;
+      function simSummaryRowCanApplyVariant(r) {
+        if (!r || typeof r !== "object") return false;
+        if (r.source === "simulate-last" && (r.hasPersistedBaseline === true || r.canApplyBaseline === true)) {
+          return true;
+        }
+        if (r.canApplyVariant === true) return true;
+        if (r.canApplyVariant === false) return false;
+        if (r.applyVariant != null && typeof r.applyVariant === "object") return true;
+        var v = r.variant;
+        if (v && typeof v === "object") {
+          if (Array.isArray(v.exchanges)) {
+            for (var ei = 0; ei < v.exchanges.length; ei++) {
+              var ex = v.exchanges[ei];
+              if (!ex || !Array.isArray(ex.symbols)) continue;
+              for (var si = 0; si < ex.symbols.length; si++) {
+                var sym = ex.symbols[si];
+                if (!sym || typeof sym !== "object") continue;
+                var symKeys = Object.keys(sym).filter(function (k) {
+                  return k !== "name";
+                });
+                if (symKeys.length > 0) return true;
+              }
+            }
+          } else if (Object.keys(v).length > 0) {
+            return true;
+          }
+        }
+        if (r.values && typeof r.values === "object") {
+          var valueKeys = Object.keys(r.values).filter(function (k) {
+            return k.indexOf("baseline.") !== 0;
+          });
+          if (valueKeys.length > 0) return true;
+        }
+        return false;
+      }
+      function simSummaryRowCanApplyBaseline(r) {
+        if (!r || typeof r !== "object") return false;
+        if (r.source === "simulate-last" && (r.hasPersistedBaseline === true || r.canApplyBaseline === true)) {
+          return true;
+        }
+        if (r.canApplyBaseline === true) return true;
+        if (r.canApplyBaseline === false) return false;
+        if (r.hasPersistedBaseline === true) return true;
+        if (r.hasGridBaselineSnapshot === true) return true;
+        if (typeof r.baselineOptionsSnapshotFile === "string" && String(r.baselineOptionsSnapshotFile).trim() !== "") {
+          return true;
+        }
+        if (r.values && r.values["baseline.optionsSnapshotFile"]) return true;
+        return false;
+      }
+      function simSummaryRowApplyVariant(r) {
+        if (!r) return null;
+        if (r.applyVariant != null) return r.applyVariant;
+        return r.variant;
+      }
+      function simSummaryIsSimUi(data) {
+        if (data && data.simulationUi === true) return true;
+        if (window.__simulationUi === true) return true;
+        if (window.location && (window.location.port === "5657" || String(window.location.href).indexOf(":5657") >= 0)) {
+          return true;
+        }
+        return false;
+      }
+      function simSummaryStatCell(v) {
+        var n = Number(v);
+        return Number.isFinite(n) ? String(n) : "—";
+      }
+      function simSummaryTradeStatsDetailHtml(tradeStats) {
+        if (!tradeStats || !Array.isArray(tradeStats.symbols) || tradeStats.symbols.length === 0) {
+          return "<div class='text-muted mb-2'>Ei kauppatilastoja (vanha tulostiedosto tai 0 kauppaa).</div>";
+        }
+        var rows = tradeStats.symbols
+          .map(function (s) {
+            return (
+              "<tr><td>" +
+              $("<div/>").text(s.name || "—").html() +
+              "</td><td class='text-end'>" +
+              simSummaryStatCell(s.trades) +
+              "</td><td class='text-end'>" +
+              simSummaryStatCell(s.takeProfits) +
+              "</td><td class='text-end'>" +
+              simSummaryStatCell(s.stopLosses) +
+              "</td><td class='text-end'>" +
+              simSummaryStatCell(s.stopLossSells) +
+              "</td><td class='text-end'>" +
+              simSummaryStatCell(s.stopLossBuys) +
+              "</td><td class='text-end'>" +
+              simSummaryStatCell(s.sells) +
+              "</td><td class='text-end'>" +
+              simSummaryStatCell(s.buys) +
+              "</td><td class='text-end'>" +
+              simSummaryStatCell(s.holds) +
+              "</td></tr>"
+            );
+          })
+          .join("");
+        return (
+          "<div class='mb-3'><strong>Kauppatilastot symbolittain</strong>" +
+          "<div class='table-responsive mt-1'><table class='table table-sm table-bordered mb-0'>" +
+          "<thead class='table-light'><tr>" +
+          "<th>Symboli</th><th class='text-end'>Kaupat</th><th class='text-end'>TP</th><th class='text-end'>SL</th>" +
+          "<th class='text-end'>SL myynti</th><th class='text-end'>SL osto</th><th class='text-end'>Myynnit</th>" +
+          "<th class='text-end'>Ostot</th><th class='text-end'>Hold</th></tr></thead><tbody>" +
+          rows +
+          "</tbody></table></div></div>"
+        );
+      }
+
+        function loadSimulationSummary() {
         function fmtTime(v) {
           if (!v) return "—";
           var d = new Date(v);
@@ -1155,30 +1764,10 @@
           );
         }
         if (!window.__simSummarySort) {
-          window.__simSummarySort = { key: "roi", dir: "desc" };
-        }
-        function applySort(rows) {
-          var cfg = window.__simSummarySort || { key: "roi", dir: "desc" };
-          var dirMul = cfg.dir === "asc" ? 1 : -1;
-          return rows.slice().sort(function (a, b) {
-            var av = 0;
-            var bv = 0;
-            if (cfg.key === "time") {
-              av = a && a.savedAt ? Date.parse(a.savedAt) : 0;
-              bv = b && b.savedAt ? Date.parse(b.savedAt) : 0;
-            } else if (cfg.key === "finalPortfolio") {
-              av = Number(a && a.finalPortfolio) || 0;
-              bv = Number(b && b.finalPortfolio) || 0;
-            } else {
-              av = Number(a && a.roi) || 0;
-              bv = Number(b && b.roi) || 0;
-            }
-            if (av === bv) return 0;
-            return av > bv ? dirMul : -dirMul;
-          });
+          window.__simSummarySort = { key: "time", dir: "desc" };
         }
         function refreshSortButtonState() {
-          var cfg = window.__simSummarySort || { key: "roi", dir: "desc" };
+          var cfg = window.__simSummarySort || { key: "time", dir: "desc" };
           $(".sim-summary-sort").removeClass("text-primary fw-bold");
           $(".sim-summary-sort").each(function () {
             var key = String($(this).data("key") || "");
@@ -1189,18 +1778,60 @@
           });
         }
         refreshSortButtonState();
-        $("#sim-summary-body").html("<tr><td colspan='9' class='text-muted'>Ladataan...</td></tr>");
+        $("#sim-summary-body").html(
+          "<tr><td colspan='" + SIM_SUMMARY_TABLE_COLSPAN + "' class='text-muted'>Ladataan...</td></tr>"
+        );
         $("#sim-summary-best").hide().text("");
+        $("#sim-summary-filtered").hide().text("");
         $("#sim-summary-truncated").hide().text("");
         var minRoiPct = String($("#sim-summary-min-roi").val() || "").trim();
-        var summaryQuery = {};
+        var sortCfgForQuery = window.__simSummarySort || { key: "time", dir: "desc" };
+        var summaryQuery = {
+          sortBy: sortCfgForQuery.key,
+          sortDir: sortCfgForQuery.dir,
+        };
         if (minRoiPct !== "" && isFinite(Number(minRoiPct))) {
           summaryQuery.minRoiPercent = Number(minRoiPct);
         }
+        simSummaryDateQueryParams(summaryQuery);
         $.ajax({ url: "/simulate/summary", method: "GET", data: summaryQuery, dataType: "json" })
           .done(function (data) {
+            var gp = data && data.gridProgress;
+            if (gp && (gp.partial === true || data.simGridRunning === true)) {
+              var gpText =
+                "Grid " +
+                (data.simGridRunning === true ? "käynnissä" : "kesken") +
+                ": " +
+                Number(gp.okResults || 0) +
+                " valmista varianttia";
+              if (gp.variantCount) {
+                gpText += " / " + Number(gp.variantCount);
+              }
+              if (gp.updatedAt) {
+                gpText += " (päivitetty " + esc(fmtTime(gp.updatedAt)) + ")";
+              }
+              if (simSummaryAutoRefreshEnabled()) {
+                gpText += ". Automaattipäivitys 5 min välein (voit poistaa valintaruudusta).";
+              } else {
+                gpText += ". Päivitä lista Päivitä-napilla tai valitse automaattipäivitys (5 min).";
+              }
+              $("#sim-summary-grid-partial").show().text(gpText);
+              syncSimSummaryAutoRefreshFromGridState(data);
+            } else {
+              $("#sim-summary-grid-partial").hide().text("");
+              stopSimSummaryAutoRefresh();
+            }
             if (!data || data.ok !== true || !Array.isArray(data.rows) || data.rows.length === 0) {
               var emptyMsg = "Ei simulaatiotuloksia.";
+              if (gp && Number(gp.okResults) > 0) {
+                emptyMsg =
+                  "Gridissä on " +
+                  gp.okResults +
+                  " valmis variantti levyllä, mutta yhtään riviä ei näytetä (tarkista Min ROI %, aikaväli tai avaa sim-portti 5657).";
+              }
+              if (data && data.filteredHint) {
+                emptyMsg += " " + String(data.filteredHint);
+              }
               if (data && data.diagnostics && data.diagnostics.hint) {
                 emptyMsg += " " + String(data.diagnostics.hint);
                 if (typeof data.diagnostics.gridResultsFileCount === "number" && data.diagnostics.gridResultsFileCount > 0) {
@@ -1208,27 +1839,77 @@
                     " (löytyi " + data.diagnostics.gridResultsFileCount + " grid-results-*.json -tiedostoa levyllä).";
                 }
               }
-              $("#sim-summary-body").html("<tr><td colspan='9' class='text-muted'>" + esc(emptyMsg) + "</td></tr>");
+              $("#sim-summary-body").html(
+                "<tr><td colspan='" +
+                  SIM_SUMMARY_TABLE_COLSPAN +
+                  "' class='text-muted'>" +
+                  esc(emptyMsg) +
+                  "</td></tr>"
+              );
               return;
             }
-            if (data.truncated && typeof data.totalCount === "number") {
+            if (data.filteredHint) {
+              $("#sim-summary-filtered").show().text(String(data.filteredHint));
+            } else if (
+              (data.savedFrom || data.savedTo) &&
+              typeof data.totalCountAfterDate === "number" &&
+              typeof data.totalCountUnfiltered === "number" &&
+              data.totalCountAfterDate < data.totalCountUnfiltered
+            ) {
+              $("#sim-summary-filtered")
+                .show()
+                .text(
+                  "Aikavälisuodatin: näytetään " +
+                    (data.totalCount || 0) +
+                    " / " +
+                    data.totalCountUnfiltered +
+                    " riviä (aikavälin sisällä " +
+                    data.totalCountAfterDate +
+                    "). Tyhjennä Alkaen/Päättyen nähdäksesi kaikki ajot."
+                );
+            } else if (
+              data.minRoiFilter != null &&
+              typeof data.totalCountUnfiltered === "number" &&
+              data.totalCountUnfiltered > (data.totalCount || 0)
+            ) {
+              $("#sim-summary-filtered")
+                .show()
+                .text(
+                  "Min ROI -suodatin: näytetään " +
+                    (data.totalCount || 0) +
+                    " / " +
+                    data.totalCountUnfiltered +
+                    " riviä. Tyhjennä Min ROI % nähdäksesi myös negatiiviset ajot."
+                );
+            }
+            if (data.truncated) {
               $("#sim-summary-truncated")
                 .show()
                 .text(
-                  "Näytetään " +
-                    data.rows.length +
-                    " / " +
-                    data.totalCount +
-                    " riviä (paras ROI ensin). Kaikki rivit ovat levyllä simulation/-kansiossa."
+                  data.truncatedHint
+                    ? String(data.truncatedHint)
+                    : "Näytetään " +
+                        data.rows.length +
+                        " / " +
+                        (data.totalCount || data.rows.length) +
+                        " riviä. Kaikki rivit ovat levyllä simulation/-kansiossa."
                 );
+            }
+            if (data.sortBy && data.sortDir) {
+              window.__simSummarySort = { key: String(data.sortBy), dir: String(data.sortDir) };
+              refreshSortButtonState();
             }
             if (data.best && typeof data.best === "object") {
               var b = data.best;
               var roiPct = Number(b.roi) * 100;
+              var bestLabel =
+                (data.savedFrom || data.savedTo || data.minRoiFilter != null)
+                  ? "Paras ROI (valituilla suodattimilla): "
+                  : "Paras ROI: ";
               $("#sim-summary-best")
                 .show()
                 .text(
-                  "Paras ROI: " +
+                  bestLabel +
                     (isFinite(roiPct) ? roiPct.toFixed(2) : String(b.roiPercent)) +
                     "% | loppusaldo " +
                     Number(b.finalPortfolio).toFixed(2) +
@@ -1236,7 +1917,7 @@
                     fmtValues(b.values)
                 );
             }
-            var sortedRows = applySort(data.rows);
+            var sortedRows = Array.isArray(data.rows) ? data.rows.slice() : [];
             window.__simSummaryLastRows = sortedRows;
             var rowsHtml = sortedRows
               .map(function (r, idx) {
@@ -1244,21 +1925,20 @@
                 var roiTxt = isFinite(roiPct) ? roiPct.toFixed(2) + "%" : String(r.roiPercent || "—");
                 var source = String(r.source || "—") + (typeof r.variantIndex === "number" ? " #" + (r.variantIndex + 1) : "");
                 var detailId = "sim-summary-detail-" + idx;
-                var simUi = data.simulationUi === true || window.__simulationUi === true;
-                var canLive =
-                  simUi &&
-                  r.variant &&
-                  typeof r.variant === "object" &&
-                  Object.keys(r.variant).length > 0;
-                var canFullBaseline =
-                  simUi &&
-                  ((r.hasPersistedBaseline === true && String(r.source || "") === "simulate-last") ||
-                    r.hasGridBaselineSnapshot === true);
+                var simUi = simSummaryIsSimUi(data);
+                var canLive = simUi && simSummaryRowCanApplyVariant(r);
+                var canFullBaseline = simUi && simSummaryRowCanApplyBaseline(r);
+                var liveTitle =
+                  r.source === "simulate-last"
+                    ? "Siirrä simulate-last -baseline parametrit liveen (ei optimoitua grid-tulosta)"
+                    : "Kirjoita parametrit live hoobot-options.json ja käynnistä live uudelleen";
                 var liveBtn =
                   canLive
                     ? "<button type='button' class='btn btn-outline-primary btn-sm sim-summary-to-live' data-row-index='" +
                       idx +
-                      "' title='Kirjoita parametrit live hoobot-options.json ja käynnistä live uudelleen'>Liveen</button>"
+                      "' title='" +
+                      esc(liveTitle) +
+                      "'>Liveen</button>"
                     : "";
                 var baselineBtn =
                   canFullBaseline
@@ -1275,6 +1955,7 @@
                     idx +
                     "' title='Kirjoita grid-variantti hoobot-options-simulate.json -tiedostoon (seuraava simulaatio)'>Käytä simulaatiossa</button>"
                   : "<span class='text-muted small'>—</span>";
+                var ts = r.tradeStats || null;
                 return (
                   "<tr>" +
                   "<td>" +
@@ -1288,6 +1969,21 @@
                   "</td>" +
                   "<td>" +
                   esc(String(r.candleRows ?? "—")) +
+                  "</td>" +
+                  "<td class='text-end'>" +
+                  simSummaryStatCell(ts && ts.trades) +
+                  "</td>" +
+                  "<td class='text-end'>" +
+                  simSummaryStatCell(ts && ts.takeProfits) +
+                  "</td>" +
+                  "<td class='text-end'>" +
+                  simSummaryStatCell(ts && ts.stopLosses) +
+                  "</td>" +
+                  "<td class='text-end'>" +
+                  simSummaryStatCell(ts && ts.sells) +
+                  "</td>" +
+                  "<td class='text-end'>" +
+                  simSummaryStatCell(ts && ts.buys) +
                   "</td>" +
                   "<td>" +
                   esc(source) +
@@ -1315,7 +2011,11 @@
                   "<tr id='" +
                   detailId +
                   "' class='sim-summary-detail-row' style='display:none;'>" +
-                  "<td colspan='9' class='small bg-white'>" +
+                  "<td colspan='" +
+                  SIM_SUMMARY_TABLE_COLSPAN +
+                  "' class='small bg-white'>" +
+                  simSummaryTradeStatsDetailHtml(ts) +
+                  "<div class='mb-1'><strong>Variantin parametrit</strong></div>" +
                   valuesListHtml(r.values) +
                   "</td>" +
                   "</tr>"
@@ -1341,11 +2041,66 @@
                 msg += " " + String(xhr.responseJSON.hint);
               }
             }
-            $("#sim-summary-body").html("<tr><td colspan='9' class='text-danger'>" + esc(msg) + "</td></tr>");
+            $("#sim-summary-body").html(
+              "<tr><td colspan='" + SIM_SUMMARY_TABLE_COLSPAN + "' class='text-danger'>" + esc(msg) + "</td></tr>"
+            );
           });
       }
 
+      $(document).on("click", ".sim-summary-to-live", function () {
+        if (typeof window.openSimSummaryApplyModal !== "function") {
+          alert("UI ei valmis — päivitä sivu (Ctrl+F5).");
+          return;
+        }
+        var idx = parseInt(String($(this).data("row-index") || ""), 10);
+        if (isNaN(idx)) return;
+        if (!window.__simSummaryLastRows || !window.__simSummaryLastRows[idx]) {
+          alert("Rivi puuttuu — paina Päivitä yhteenvetolistassa.");
+          return;
+        }
+        if (!simSummaryRowCanApplyVariant(window.__simSummaryLastRows[idx])) {
+          alert("Tällä rivillä ei ole siirrettäviä parametreja (baseline ilman akselimuutoksia).");
+          return;
+        }
+        window.openSimSummaryApplyModal(idx, "live");
+      });
+      $(document).on("click", ".sim-summary-baseline-to-live", function () {
+        if (typeof window.openSimSummaryApplyModal !== "function") {
+          alert("UI ei valmis — päivitä sivu (Ctrl+F5).");
+          return;
+        }
+        var idx = parseInt(String($(this).data("row-index") || ""), 10);
+        if (isNaN(idx)) return;
+        if (!window.__simSummaryLastRows || !window.__simSummaryLastRows[idx]) {
+          alert("Rivi puuttuu — paina Päivitä yhteenvetolistassa.");
+          return;
+        }
+        if (!simSummaryRowCanApplyBaseline(window.__simSummaryLastRows[idx])) {
+          alert("Tällä rivillä ei ole baseline-snapshotia siirrettäväksi.");
+          return;
+        }
+        window.openSimSummaryApplyModal(idx, "baseline");
+      });
+      $(document).on("click", ".sim-summary-to-simulate", function () {
+        if (typeof window.openSimSummaryApplyModal !== "function") {
+          alert("UI ei valmis — päivitä sivu (Ctrl+F5).");
+          return;
+        }
+        var idx = parseInt(String($(this).data("row-index") || ""), 10);
+        if (isNaN(idx)) return;
+        if (!window.__simSummaryLastRows || !window.__simSummaryLastRows[idx]) {
+          alert("Rivi puuttuu — paina Päivitä yhteenvetolistassa.");
+          return;
+        }
+        if (!simSummaryRowCanApplyVariant(window.__simSummaryLastRows[idx])) {
+          alert("Tällä rivillä ei ole siirrettäviä parametreja (baseline ilman akselimuutoksia).");
+          return;
+        }
+        window.openSimSummaryApplyModal(idx, "simulate");
+      });
+
       $(".sidebar-settings-button").on("click", () => {
+        stopSimSummaryAutoRefresh();
         $(".sidebar-settings-button").addClass("active");
         $(".sidebar-dashboard-button").removeClass("active");
         $(".sidebar-simulate-button").removeClass("active");
@@ -1358,6 +2113,7 @@
         $(".simsummary-container").hide();
       });
       $(".sidebar-dashboard-button").on("click", () => {
+        stopSimSummaryAutoRefresh();
         $(".sidebar-dashboard-button").addClass("active");
         $(".sidebar-settings-button").removeClass("active");
         $(".sidebar-simulate-button").removeClass("active");
@@ -1368,9 +2124,10 @@
         $(".simulate-container").hide();
         $(".crypto-container").hide();
         $(".simsummary-container").hide();
-        loadDashboardPnl();
+        loadDashboard();
       });
         $(".sidebar-simulate-button").on("click", () => {
+        stopSimSummaryAutoRefresh();
         $(".sidebar-simulate-button").addClass("active");
         $(".sidebar-dashboard-button").removeClass("active");
         $(".sidebar-settings-button").removeClass("active");
@@ -1400,6 +2157,7 @@
         }
       });
       $(".sidebar-crypto-button").on("click", () => {
+        stopSimSummaryAutoRefresh();
         $(".sidebar-crypto-button").addClass("active");
         $(".sidebar-dashboard-button").removeClass("active");
         $(".sidebar-settings-button").removeClass("active");
@@ -1429,6 +2187,9 @@
         function refreshTradePathDebugBadge() {
           var isSim = window.__simulationUi === true;
           var $badge = $("#trade-path-debug-badge");
+          if ($(".simulation-settings-section").length) {
+            $(".simulation-settings-section").toggle(isSim);
+          }
           if (!$badge.length) return;
           if (isSim) {
             $badge
@@ -1442,8 +2203,29 @@
               .html("Trade path: <strong>LIVE BUY PATH</strong> (buy)");
           }
         }
+        function formatSimHistoryYearsLabel(years) {
+          var y = Number(years);
+          if (!isFinite(y) || y <= 0) return "koko ladattu historia";
+          if (Math.abs(y - 1 / 12) < 1e-6) return "viimeiset 1 kk";
+          if (Math.abs(y - 0.5) < 1e-6) return "viimeiset 6 kk";
+          if (Math.abs(y - 1) < 1e-6) return "viimeiset 1 vuosi";
+          if (Math.abs(Math.round(y) - y) < 1e-6) {
+            var n = Math.round(y);
+            return n === 1 ? "viimeiset 1 vuosi" : "viimeiset " + n + " vuotta";
+          }
+          return "viimeiset " + y + " v";
+        }
+        function refreshSimHistorySummary(settings) {
+          var s = settings || window.__lastLoadedSettings;
+          var label = formatSimHistoryYearsLabel(s && s.simulationHistoryYears);
+          var years = s && typeof s.simulationHistoryYears === "number" ? s.simulationHistoryYears : 0;
+          var text = label + " (simulationHistoryYears=" + (isFinite(Number(years)) ? String(years) : "0") + ")";
+          $("#simulate-history-summary").text(text);
+          $("#settings-sim-history-status").text("Tallennettu: " + text);
+        }
         function refreshSimEffectiveConfigInfo(settings) {
           var $el = $("#simulate-effective-config");
+          refreshSimHistorySummary(settings);
           if (!$el.length) return;
           var s = settings || window.__lastLoadedSettings;
           if (!s || !Array.isArray(s.exchanges)) {
@@ -1472,6 +2254,8 @@
           $el.text(
             "Effective config: " +
               name +
+              " | simulationHistoryYears=" +
+              formatSimHistoryYearsLabel(s && s.simulationHistoryYears) +
               " | simulationBuyAmountQuote=" +
               (isFinite(simBuyAmount) ? simBuyAmount : "-") +
               " | growingMax.buy=" +
@@ -1489,7 +2273,24 @@
           }
         });
         $("#dashboard-refresh").on("click", function () {
+          loadDashboard();
+        });
+        $("#dashboard-exchange, #dashboard-duration").on("change", function () {
+          const exchange = $("#dashboard-exchange").val() || "binance";
           loadDashboardPnl();
+          loadDashboardLiveStatus();
+          populateDashboardChartSymbols(exchange).always(function () {
+            loadDashboardPriceChart();
+          });
+        });
+        $("#dashboard-chart-symbol").on("change", function () {
+          loadDashboardPriceChart();
+        });
+        $("#dashboard-chart-refresh").on("click", function () {
+          loadDashboardPriceChart();
+        });
+        $("#dashboard-auto-refresh").on("change", function () {
+          setDashboardAutoRefresh($(this).is(":checked"));
         });
 
         // Show panel that matches active sidebar item on load
@@ -1499,7 +2300,7 @@
           $(".simulate-container").hide();
           $(".crypto-container").hide();
           $(".simsummary-container").hide();
-          loadDashboardPnl();
+          loadDashboard();
         } else if ($(".sidebar-simulate-button").hasClass("active")) {
           $(".dashboard-container").hide();
           $(".settings-container").hide();
@@ -1529,29 +2330,129 @@
         $("#sim-summary-refresh-btn").on("click", function () {
           loadSimulationSummary();
         });
+        $("#sim-summary-auto-refresh").on("change", function () {
+          if (simSummaryAutoRefreshEnabled()) {
+            startSimSummaryAutoRefresh();
+            loadSimulationSummary();
+          } else {
+            stopSimSummaryAutoRefresh();
+          }
+        });
+        $("#sim-summary-min-roi").on("change keyup", function () {
+          if ($(".simsummary-container").is(":visible")) {
+            loadSimulationSummary();
+          }
+        });
+        $("#sim-summary-date-from, #sim-summary-date-to").on("change", function () {
+          if ($(".simsummary-container").is(":visible")) {
+            loadSimulationSummary();
+          }
+        });
+        $("#sim-summary-date-clear").on("click", function () {
+          $("#sim-summary-date-from").val("");
+          $("#sim-summary-date-to").val("");
+          if ($(".simsummary-container").is(":visible")) {
+            loadSimulationSummary();
+          }
+        });
+        $("#simulationHistoryYears").on("change", function () {
+          var y = parseFloat(String($(this).val() || "0"));
+          refreshSimHistorySummary({ simulationHistoryYears: isFinite(y) && y >= 0 ? y : 0 });
+        });
 
         window.__simSummaryLiveExchangesCache = null;
         function setSimSummaryModalApplyMode(target) {
           window.__simSummaryApplyTarget = target || "live";
+          var isBaseline = window.__simSummaryApplyTarget === "baseline";
           var isSim = window.__simSummaryApplyTarget === "simulate";
           $("#simSummaryLiveModalLabel").text(
-            isSim ? "Käytä parametreja simulaatiossa" : "Siirrä rivin parametrit live-bottiin"
+            isBaseline
+              ? "Siirrä baseline liveen"
+              : isSim
+                ? "Käytä parametreja simulaatiossa"
+                : "Siirrä rivin parametrit live-bottiin"
           );
           $("#sim-summary-live-confirm").text(
-            isSim ? "Kirjoita simulaatioasetuksiin" : "Siirrä ja käynnistä live uudelleen"
+            isBaseline
+              ? "Siirrä baseline liveen"
+              : isSim
+                ? "Kirjoita simulaatioasetuksiin"
+                : "Siirrä ja käynnistä live uudelleen"
           );
-          if (isSim) {
+          if (isBaseline) {
+            $("#sim-summary-modal-intro").html(
+              "Valitse live-pörssi ja kohdepari. Baseline-symbolin <strong>koko konfiguraatio</strong> yhdistetään valittuun pariin (live-runtime säilyy). Baseline-parit näkyvät alla."
+            );
+            $("#sim-summary-live-all-label").text(
+              "Siirrä kaikkiin tämän pörssin live-pareihin, joilla on vastaava nimi baselinessa"
+            );
+          } else if (isSim) {
             $("#sim-summary-modal-intro").html(
               "Valitse pörssi ja pari tiedostosta <code>hoobot-options-simulate.json</code>. Rivin grid-variantti yhdistetään valitun parin asetuksiin; <strong>seuraava simulaatio</strong> käyttää näitä arvoja."
             );
+            $("#sim-summary-live-all-label").text("Siirrä kaikkiin tämän pörssin symboleihin");
           } else {
             $("#sim-summary-modal-intro").html(
               "Grid-variantti on <code>binance</code>-muodossa; valitse live-konfigissa sama pörssi (yleensä Binance)."
             );
+            $("#sim-summary-live-all-label").text("Siirrä kaikkiin tämän pörssin symboleihin");
           }
           $("#sim-summary-live-transfer-modes").toggle(!isSim);
           $("#sim-summary-live-network-fields").toggle(!isSim);
+          $("#sim-summary-baseline-full-replace-wrap").toggleClass("d-none", !isBaseline);
+          $("#sim-summary-baseline-pairs-hint").toggleClass("d-none", !isBaseline);
+          if (!isBaseline) {
+            $("#sim-summary-baseline-full-replace").prop("checked", false);
+            $("#sim-summary-baseline-pairs-hint").text("");
+          }
         }
+        function loadSimSummaryBaselinePairsHint(row) {
+          var $hint = $("#sim-summary-baseline-pairs-hint");
+          if ((window.__simSummaryApplyTarget || "") !== "baseline" || !row) {
+            $hint.addClass("d-none").text("");
+            return;
+          }
+          var qs = [];
+          if (row.baselineOptionsSnapshotFile) {
+            qs.push("baselineOptionsSnapshotFile=" + encodeURIComponent(row.baselineOptionsSnapshotFile));
+          }
+          if (row.file) qs.push("gridSummaryFile=" + encodeURIComponent(row.file));
+          if (!qs.length) {
+            $hint.removeClass("d-none").text("Baseline-lähde puuttuu tältä riviltä.");
+            return;
+          }
+          $.ajax({ url: "/settings/baseline-symbols?" + qs.join("&"), method: "GET", dataType: "json" })
+            .done(function (data) {
+              if (!data || !data.ok || !data.exchanges || !data.exchanges.length) {
+                $hint.removeClass("d-none").text("Baseline-parilistaa ei saatu.");
+                return;
+              }
+              var parts = [];
+              data.exchanges.forEach(function (ex) {
+                if (!ex || !ex.symbols || !ex.symbols.length) return;
+                var names = ex.symbols
+                  .map(function (s) {
+                    return s && s.name ? s.name : "";
+                  })
+                  .filter(Boolean);
+                if (names.length) parts.push((ex.name || "?") + ": " + names.join(", "));
+              });
+              $hint
+                .removeClass("d-none")
+                .text(parts.length ? "Baseline-parit: " + parts.join(" · ") : "Baseline ei sisällä symboleja.");
+            })
+            .fail(function () {
+              $hint.removeClass("d-none").text("Baseline-parilistaa ei saatu.");
+            });
+        }
+        function toggleSimSummaryBaselinePairFieldsDisabled() {
+          var full = $("#sim-summary-baseline-full-replace").is(":checked");
+          $("#sim-summary-live-exchange, #sim-summary-live-symbol, #sim-summary-live-all").prop("disabled", full);
+          var cache = window.__simSummaryLiveExchangesCache;
+          var hasSymbols = !!(cache && cache.ok && cache.exchanges && cache.exchanges.length > 0);
+          updateSimSummaryConfirmEnabled(hasSymbols);
+        }
+        $("#sim-summary-baseline-full-replace").on("change", toggleSimSummaryBaselinePairFieldsDisabled);
         function primeSimSummaryLiveHostDefault() {
           if ((window.__simSummaryApplyTarget || "live") === "simulate") return;
           var $h = $("#sim-summary-live-host");
@@ -1591,6 +2492,15 @@
             baseUrl: restartProto + "//" + liveHost + ":" + port,
           };
         }
+        function updateSimSummaryConfirmEnabled(hasSymbols) {
+          var isBaseline = (window.__simSummaryApplyTarget || "") === "baseline";
+          var fullReplace = $("#sim-summary-baseline-full-replace").is(":checked");
+          if (isBaseline && fullReplace) {
+            $("#sim-summary-live-confirm").prop("disabled", false);
+            return;
+          }
+          $("#sim-summary-live-confirm").prop("disabled", !hasSymbols);
+        }
         function fillSimLiveModalExchangeSelects(data) {
           window.__simSummaryLiveExchangesCache = data;
           var $ex = $("#sim-summary-live-exchange");
@@ -1603,8 +2513,10 @@
           updateSimSummaryLiveHostHelp();
           if (!data || !data.ok || !data.exchanges || data.exchanges.length === 0) {
             $ex.append($("<option/>").val("").text("(ei symboleja / verkko tai tiedosto)"));
+            updateSimSummaryConfirmEnabled(false);
             return;
           }
+          updateSimSummaryConfirmEnabled(true);
           data.exchanges.forEach(function (ex) {
             if (ex && ex.name) {
               $ex.append($("<option/>").val(ex.name).text(ex.name));
@@ -1660,24 +2572,43 @@
           $.ajax({ url: fetchUrl, method: "GET", dataType: "json" })
             .done(function (data) {
               fillSimLiveModalExchangeSelects(data);
-              if (showModal && typeof bootstrap !== "undefined") {
-                var el = document.getElementById("simSummaryLiveModal");
-                if (el) bootstrap.Modal.getOrCreateInstance(el).show();
+              if (showModal) {
+                showSimSummaryLiveModalNow();
               }
             })
             .fail(function () {
               fillSimLiveModalExchangeSelects({ ok: false, exchanges: [] });
-              if (showModal && typeof bootstrap !== "undefined") {
-                var el2 = document.getElementById("simSummaryLiveModal");
-                if (el2) bootstrap.Modal.getOrCreateInstance(el2).show();
+              if (showModal) {
+                showSimSummaryLiveModalNow();
               }
             });
         }
+        function showSimSummaryLiveModalNow() {
+          if (typeof bootstrap === "undefined") {
+            alert("Ikkunan avaus epäonnistui — päivitä sivu (Bootstrap ei latautunut).");
+            return false;
+          }
+          var el = document.getElementById("simSummaryLiveModal");
+          if (!el) return false;
+          bootstrap.Modal.getOrCreateInstance(el).show();
+          return true;
+        }
         function openSimSummaryApplyModal(rowIndex, target) {
+          var row =
+            window.__simSummaryLastRows && window.__simSummaryLastRows[rowIndex]
+              ? window.__simSummaryLastRows[rowIndex]
+              : null;
+          window.__simSummaryPendingRow = row ? JSON.parse(JSON.stringify(row)) : null;
           window.__simSummaryPendingRowIndex = rowIndex;
           setSimSummaryModalApplyMode(target);
-          reloadSimSummaryLiveSymbolsFromServer(true);
+          $("#sim-summary-baseline-full-replace").prop("checked", false);
+          toggleSimSummaryBaselinePairFieldsDisabled();
+          loadSimSummaryBaselinePairsHint(window.__simSummaryPendingRow);
+          $("#sim-summary-live-confirm").prop("disabled", true);
+          showSimSummaryLiveModalNow();
+          reloadSimSummaryLiveSymbolsFromServer(false);
         }
+        window.openSimSummaryApplyModal = openSimSummaryApplyModal;
         $(document).on("change", "input[name='sim-summary-apply-mode']", function () {
           updateSimSummaryLiveHostHelp();
           reloadSimSummaryLiveSymbolsFromServer(false);
@@ -1692,73 +2623,136 @@
             reloadSimSummaryLiveSymbolsFromServer(false);
           }
         });
-        $(document).on("click", ".sim-summary-to-live", function () {
-          var idx = parseInt(String($(this).data("row-index") || ""), 10);
-          if (isNaN(idx)) return;
-          openSimSummaryApplyModal(idx, "live");
-        });
-        $(document).on("click", ".sim-summary-baseline-to-live", function () {
-          var idx = parseInt(String($(this).data("row-index") || ""), 10);
-          var rows = window.__simSummaryLastRows;
-          var row = !isNaN(idx) && rows ? rows[idx] : null;
-          var snapFile =
-            row && typeof row.baselineOptionsSnapshotFile === "string" ? row.baselineOptionsSnapshotFile : "";
-          if (
-            !confirm(
-              "Korvataanko live hoobot-options.json -tiedoston koko exchanges-lista baselin mukaan?" +
-                (snapFile ? "\n\nLähde: " + snapFile : "") +
-                "\n\nHuom: jos baseline sisältää vain yhden pörssin, muut pörssit poistuvat live-asetuksista."
-            )
-          ) {
-            return;
-          }
-          var $btn = $(this);
-          $btn.prop("disabled", true);
-          var payload = {};
-          if (snapFile) payload.baselineOptionsSnapshotFile = snapFile;
-          $.ajax({
-            url: "/settings/apply-simulate-last-baseline-exchanges-to-live",
-            method: "POST",
-            contentType: "application/json",
-            dataType: "json",
-            data: JSON.stringify(payload),
-          })
-            .done(function (r) {
-              if (!r || !r.ok) {
-                alert((r && r.error) || "Virhe");
-                return;
-              }
-              markSimSummaryRowLiveApplied(row, { kind: "baseline" });
-              alert(
-                (r.message || "Valmis.") +
-                  (r.hint ? "\n\n" + r.hint : "") +
-                  "\n\nLive-uudelleiskäynnistys: käynnistä live-botti tai POST /live/restart."
-              );
-            })
-            .fail(function (xhr) {
-              var err = (xhr.responseJSON && xhr.responseJSON.error) || xhr.statusText || "Virhe";
-              alert(err);
-            })
-            .always(function () {
-              $btn.prop("disabled", false);
-            });
-        });
-        $(document).on("click", ".sim-summary-to-simulate", function () {
-          var idx = parseInt(String($(this).data("row-index") || ""), 10);
-          if (isNaN(idx)) return;
-          openSimSummaryApplyModal(idx, "simulate");
-        });
         $("#sim-summary-live-all").on("change", function () {
           $("#sim-summary-live-symbol").prop("disabled", $(this).is(":checked"));
         });
         $("#sim-summary-live-confirm").on("click", function () {
-          var idx = window.__simSummaryPendingRowIndex;
-          var rows = window.__simSummaryLastRows;
-          if (idx == null || !rows || !rows[idx]) {
+          var row = window.__simSummaryPendingRow;
+          if (!row || typeof row !== "object") {
             alert("Rivi puuttuu — päivitä yhteenveto.");
             return;
           }
-          var row = rows[idx];
+          var applyTarget = window.__simSummaryApplyTarget || "live";
+          var $btn = $(this);
+          $btn.prop("disabled", true);
+
+          function afterSuccessClose(msg, rowForLiveMark, liveMeta, liveRestartOk) {
+            if (
+              rowForLiveMark &&
+              liveRestartOk &&
+              (applyTarget === "live" || applyTarget === "baseline")
+            ) {
+              markSimSummaryRowLiveApplied(rowForLiveMark, liveMeta || { kind: applyTarget });
+            }
+            alert(msg);
+            closeSimSummaryLiveModal();
+          }
+
+          if (applyTarget === "baseline") {
+            var snapFile =
+              row && typeof row.baselineOptionsSnapshotFile === "string"
+                ? row.baselineOptionsSnapshotFile
+                : "";
+            var applyFullExchanges = $("#sim-summary-baseline-full-replace").is(":checked");
+            var exchangeName = String($("#sim-summary-live-exchange").val() || "").trim();
+            var applyToAll = $("#sim-summary-live-all").is(":checked");
+            var targetSymbolName = String($("#sim-summary-live-symbol").val() || "").trim();
+            if (!applyFullExchanges) {
+              if (!exchangeName) {
+                alert("Valitse live-pörssi.");
+                $btn.prop("disabled", false);
+                return;
+              }
+              if (!applyToAll && !targetSymbolName) {
+                alert("Valitse kohdepari tai Siirrä kaikkiin.");
+                $btn.prop("disabled", false);
+                return;
+              }
+            } else if (
+              !confirm(
+                "Korvataanko live hoobot-options.json -tiedoston koko exchanges-lista baselin mukaan?\n\nMuut pörssit poistuvat jos baseline on kapea."
+              )
+            ) {
+              $btn.prop("disabled", false);
+              return;
+            }
+            var baselinePayload = { applyFullExchanges: applyFullExchanges };
+            if (snapFile) baselinePayload.baselineOptionsSnapshotFile = snapFile;
+            if (row.file) baselinePayload.gridSummaryFile = row.file;
+            if (!applyFullExchanges) {
+              baselinePayload.exchangeName = exchangeName;
+              baselinePayload.applyToAll = applyToAll;
+              if (!applyToAll) baselinePayload.targetSymbolName = targetSymbolName;
+            }
+            var baselineBody = JSON.stringify(baselinePayload);
+            primeSimSummaryLiveHostDefault();
+            var bundle = getSimSummaryLiveBaseUrlBundle();
+            if (bundle.error) {
+              alert(bundle.error);
+              $btn.prop("disabled", false);
+              return;
+            }
+            var restartProto = bundle.restartProto;
+            var liveHost = bundle.liveHost;
+            var port = bundle.port;
+
+            $.ajax({
+              url: "/settings/apply-simulate-last-baseline-exchanges-to-live",
+              method: "POST",
+              contentType: "application/json",
+              dataType: "json",
+              data: baselineBody,
+            })
+              .done(function (r) {
+                if (!r || !r.ok) {
+                  alert((r && r.error) || "Virhe");
+                  return;
+                }
+                var baseMsg = (r.message || "Valmis.") + (r.hint ? "\n\n" + r.hint : "");
+                var url = restartProto + "//" + liveHost + ":" + port + "/live/restart";
+                fetch(url, { method: "POST", mode: "cors" })
+                  .then(function (res) {
+                    return res.json().then(function (j) {
+                      return { status: res.status, body: j };
+                    });
+                  })
+                  .catch(function () {
+                    return null;
+                  })
+                  .then(function (rr) {
+                    var msg = baseMsg;
+                    var restartOk = !!(rr && rr.status === 200 && rr.body && rr.body.ok);
+                    if (restartOk) {
+                      msg +=
+                        "\n\nLive-botti käynnistettiin uudelleen (" + restartProto + "//" + liveHost + ":" + port + ").";
+                    } else if (rr && rr.body && rr.body.error) {
+                      msg += "\n\nLive-uudelleiskäynnistys: " + rr.body.error;
+                    } else {
+                      msg +=
+                        "\n\nLive-uudelleiskäynnistys ei onnistunut. Käynnistä live-botti manuaalisesti tai POST /live/restart.";
+                    }
+                    afterSuccessClose(msg, row, {
+                      kind: "baseline",
+                      appliedSymbols: r.appliedSymbols,
+                    }, restartOk);
+                  });
+              })
+              .fail(function (xhr) {
+                var err = (xhr.responseJSON && xhr.responseJSON.error) || xhr.statusText || "Virhe";
+                alert(err);
+              })
+              .always(function () {
+                $btn.prop("disabled", false);
+              });
+            return;
+          }
+
+          var applyVariant = simSummaryRowApplyVariant(row);
+          if (!applyVariant || !simSummaryRowCanApplyVariant(row)) {
+            alert("Rivillä ei ole siirrettäviä parametreja — valitse toinen variantti.");
+            $btn.prop("disabled", false);
+            return;
+          }
           var exchangeName = String($("#sim-summary-live-exchange").val() || "").trim();
           var applyToAll = $("#sim-summary-live-all").is(":checked");
           var targetSymbolName = String($("#sim-summary-live-symbol").val() || "").trim();
@@ -1766,24 +2760,16 @@
             exchangeName: exchangeName || undefined,
             targetSymbolName: applyToAll ? undefined : targetSymbolName,
             applyToAll: applyToAll,
-            variant: row.variant,
+            variant: applyVariant,
+            flatValues: row.values && typeof row.values === "object" ? row.values : undefined,
           });
           if (!applyToAll && !targetSymbolName) {
             alert("Valitse kohdepari tai Siirrä kaikkiin.");
+            $btn.prop("disabled", false);
             return;
           }
-          var $btn = $(this);
-          $btn.prop("disabled", true);
 
-          function afterSuccessClose(msg, rowForLiveMark, liveMeta) {
-            if (rowForLiveMark && (window.__simSummaryApplyTarget || "live") === "live") {
-              markSimSummaryRowLiveApplied(rowForLiveMark, liveMeta || { kind: "variant" });
-            }
-            alert(msg);
-            closeSimSummaryLiveModal();
-          }
-
-          if ((window.__simSummaryApplyTarget || "live") === "simulate") {
+          if (applyTarget === "simulate") {
             $.ajax({
               url: "/settings/apply-summary-variant-to-simulate",
               method: "POST",
@@ -1869,7 +2855,7 @@
                 afterSuccessClose(rr.body.message || "Valmis.", row, {
                   kind: "variant",
                   appliedSymbols: rr.body.appliedSymbols,
-                });
+                }, true);
               })
               .finally(function () {
                 $btn.prop("disabled", false);
@@ -1902,7 +2888,8 @@
                 })
                 .then(function (rr) {
                   var msg = baseMsg;
-                  if (rr && rr.status === 200 && rr.body && rr.body.ok) {
+                  var restartOk = !!(rr && rr.status === 200 && rr.body && rr.body.ok);
+                  if (restartOk) {
                     msg +=
                       "\n\nLive-botti käynnistettiin uudelleen (" + restartProto + "//" + liveHost + ":" + port + ").";
                   } else if (rr && rr.body && rr.body.error) {
@@ -1920,7 +2907,7 @@
                   afterSuccessClose(msg, row, {
                     kind: "variant",
                     appliedSymbols: r.appliedSymbols,
-                  });
+                  }, restartOk);
                 });
             })
             .fail(function (xhr) {
@@ -1977,6 +2964,7 @@
           if (symbolDomHas($symbol, ".symbol-timeframes")) patch.timeframes = dom.timeframes;
           if (symbolDomHas($symbol, ".symbol-source")) patch.source = dom.source;
           if (symbolDomHas($symbol, ".agreement")) patch.agreement = dom.agreement;
+          if (symbolDomHas($symbol, ".scout-confirm-enabled")) patch.scoutConfirm = dom.scoutConfirm;
           if (symbolDomHas($symbol, ".trend-enabled")) patch.trend = dom.trend;
           if (symbolDomHas($symbol, ".grid-order-size")) {
             patch.gridOrderSize = dom.gridOrderSize;
@@ -1996,7 +2984,14 @@
           }
           if (symbolDomHas($symbol, ".close-percentage")) patch.closePercentage = dom.closePercentage;
           if (symbolDomHas($symbol, ".maximum-age-of-order")) patch.maximumAgeOfOrder = dom.maximumAgeOfOrder;
+          if (symbolDomHas($symbol, ".block-consecutive-loss-enabled")) {
+            patch.blockConsecutiveLoss = dom.blockConsecutiveLoss;
+          }
+          if (symbolDomHas($symbol, ".trade-rate-limit-enabled")) {
+            patch.tradeRateLimit = dom.tradeRateLimit;
+          }
           if (symbolDomHas($symbol, ".trade-fee-percentage")) patch.tradeFeePercentage = dom.tradeFeePercentage;
+          if (symbolDomHas($symbol, ".live-order-buy-mode")) patch.liveOrderExecution = dom.liveOrderExecution;
           if (symbolDomHas($symbol, ".stop-loss-enabled")) patch.stopLoss = dom.stopLoss;
           if (symbolDomHas($symbol, ".stop-loss-buy-enabled")) patch.stopLossBuy = dom.stopLossBuy;
           if (symbolDomHas($symbol, ".take-profit-enabled")) patch.takeProfit = dom.takeProfit;
@@ -2036,6 +3031,10 @@
               trendAgreement: aaPatch.trendAgreement,
               trendAlignedBonus: aaPatch.trendAlignedBonus,
               trendCounterPenalty: aaPatch.trendCounterPenalty,
+              blockCounterTrendEntries:
+                aaPatch.blockCounterTrendEntries !== undefined
+                  ? aaPatch.blockCounterTrendEntries
+                  : stored.algorithmicAdaptive?.blockCounterTrendEntries !== false,
               conflictEnabled: aaPatch.conflictEnabled,
               conflictMinShare: aaPatch.conflictMinShare,
               conflictPenalty: aaPatch.conflictPenalty,
@@ -2134,49 +3133,38 @@
           });
         }
 
-        /** Algorithmic: MACD + RSI + ADX + BB + CMF päälle; päällekkäiset pois. */
+        /** Algorithmic: apply paradigm preset to DOM (meanReversion | momentum | complementary). */
         function applyRecommendedIndicatorsToDom($symbol) {
-          function setChk(sel, on) {
-            $symbol.find(sel).prop("checked", !!on);
+          var preset = ($symbol.find(".indicators-preset").val() || "meanReversion").toString();
+          if (window.HoobotIndicatorsPreset) {
+            window.HoobotIndicatorsPreset.applyPresetToDom($symbol, preset);
+            window.HoobotIndicatorsPreset.updateProfitFloorHint($symbol);
           }
-          setChk(".sma-enabled", false);
-          setChk(".renko-enabled", false);
-          setChk(".ema-enabled", false);
-          setChk(".macd-enabled", true);
-          setChk(".rsi-enabled", true);
-          setChk(".adx-enabled", true);
-          setChk(".atr-enabled", true);
-          setChk(".obv-enabled", false);
-          setChk(".cmf-enabled", true);
-          setChk(".bb-enabled", true);
-          setChk(".so-enabled", false);
-          setChk(".srsi-enabled", false);
-          setChk(".dmi-enabled", false);
-          $symbol.find(".macd-fast").val(12);
-          $symbol.find(".macd-slow").val(26);
-          $symbol.find(".macd-signal").val(9);
-          $symbol.find(".macd-weight").val(1.2);
-          $symbol.find(".rsi-length").val(14);
-          $symbol.find(".rsi-history").val(3);
-          $symbol.find(".rsi-treshold-overbought").val(70);
-          $symbol.find(".rsi-treshold-oversold").val(30);
-          $symbol.find(".rsi-weight").val(1);
-          $symbol.find(".adx-dilength").val(14);
-          $symbol.find(".adx-smoothing").val(14);
-          $symbol.find(".adx-weight").val(1);
-          $symbol.find(".atr-length").val(14);
-          $symbol.find(".atr-weight").val(0);
-          $symbol.find(".cmf-length").val(20);
-          $symbol.find(".cmf-history").val(3);
-          $symbol.find(".cmf-treshold-overbought").val(0.1);
-          $symbol.find(".cmf-treshold-oversold").val(-0.1);
-          $symbol.find(".cmf-weight").val(0.9);
-          $symbol.find(".bb-length").val(20);
-          $symbol.find(".bb-multiplier").val(2);
-          $symbol.find(".bb-average").val("SMA");
-          $symbol.find(".bb-history").val(3);
-          $symbol.find(".bb-weight").val(1);
-          $symbol.find(".indicators-preset").val("complementary");
+        }
+
+        function liveOrderModeOptions(selected, side) {
+          const buyDefault = "Oletus (aggressiveLimit entry, limit TP-osto)";
+          const sellDefault = "Oletus (limit)";
+          const modes = [
+            ["", side === "buy" ? buyDefault : sellDefault],
+            ["limit", "Limit @ bid/ask"],
+            ["aggressiveLimit", "Aggressive limit (osto @ ask)"],
+            ["market", "Market (heti)"],
+          ];
+          const sel = selected || "";
+          return modes
+            .map(function (pair) {
+              return (
+                '<option value="' +
+                pair[0] +
+                '"' +
+                (sel === pair[0] ? " selected" : "") +
+                ">" +
+                pair[1] +
+                "</option>"
+              );
+            })
+            .join("");
         }
 
         // Function to add a new symbol entry
@@ -2237,6 +3225,91 @@
                               <input type="number" step="1s" class="form-control agreement" placeholder="e.g., 25" value="${
                                 symbolData.agreement || ""
                               }">
+                            </div>
+                            <div class="mb-3">
+                              <h5>Scout + Confirm</h5>
+                              <p class="text-muted small mb-2">
+                                Nopea scout-kynttilä lukitsee entry-suunnan; confirm-kynttilä varmistaa sen täysillä indikaattoreilla.
+                              </p>
+                              <table class="table table-bordered">
+                                <tbody>
+                                  <tr>
+                                    <td class="col-4"><label class="form-label">Käytössä</label></td>
+                                    <td>
+                                      <div class="form-check">
+                                        <input type="checkbox" class="form-check-input scout-confirm-enabled" ${
+                                          symbolData.scoutConfirm?.enabled ? "checked" : ""
+                                        }>
+                                        <label class="form-check-label">Scout + Confirm entry</label>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td><label class="form-label">Scout timeframe</label></td>
+                                    <td>
+                                      <input type="text" class="form-control scout-timeframe" placeholder="1m" value="${
+                                        symbolData.scoutConfirm?.scoutTimeframe || "1m"
+                                      }">
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td><label class="form-label">Confirm timeframe</label></td>
+                                    <td>
+                                      <input type="text" class="form-control confirm-timeframe" placeholder="3m" value="${
+                                        symbolData.scoutConfirm?.confirmTimeframe || "3m"
+                                      }">
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td><label class="form-label">Scout min share (%)</label></td>
+                                    <td>
+                                      <input type="number" step="1" class="form-control scout-min-share" placeholder="40" value="${
+                                        symbolData.scoutConfirm?.scoutMinShare ?? ""
+                                      }">
+                                      <small class="text-muted">Scout-indikaattorien minimi BUY/SELL-osuus.</small>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td><label class="form-label">Confirm agreement (%)</label></td>
+                                    <td>
+                                      <input type="number" step="1" class="form-control confirm-agreement" placeholder="tyhjä = yleinen agreement" value="${
+                                        symbolData.scoutConfirm?.confirmAgreement ?? ""
+                                      }">
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td><label class="form-label">Scout indicators</label></td>
+                                    <td>
+                                      <div class="form-check form-check-inline">
+                                        <input type="checkbox" class="form-check-input scout-indicator-rsi" ${
+                                          !symbolData.scoutConfirm?.scoutIndicators ||
+                                          symbolData.scoutConfirm?.scoutIndicators?.includes("rsi")
+                                            ? "checked"
+                                            : ""
+                                        }>
+                                        <label class="form-check-label">RSI</label>
+                                      </div>
+                                      <div class="form-check form-check-inline">
+                                        <input type="checkbox" class="form-check-input scout-indicator-bb" ${
+                                          !symbolData.scoutConfirm?.scoutIndicators ||
+                                          symbolData.scoutConfirm?.scoutIndicators?.includes("bb")
+                                            ? "checked"
+                                            : ""
+                                        }>
+                                        <label class="form-check-label">BB</label>
+                                      </div>
+                                      <div class="form-check form-check-inline">
+                                        <input type="checkbox" class="form-check-input scout-indicator-macd" ${
+                                          symbolData.scoutConfirm?.scoutIndicators?.includes("macd")
+                                            ? "checked"
+                                            : ""
+                                        }>
+                                        <label class="form-check-label">MACD</label>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
                             </div>
                             <div class="mb-3">
                               <h5>Adaptiivinen algorithmic</h5>
@@ -2300,6 +3373,17 @@
                                             symbolData.algorithmicAdaptive?.trendCounterPenalty ?? ""
                                           }">
                                         </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td><label class="form-label">Counter-trend entry</label></td>
+                                    <td>
+                                      <div class="form-check">
+                                        <input type="checkbox" class="form-check-input adaptive-block-counter-trend" ${
+                                          symbolData.algorithmicAdaptive?.blockCounterTrendEntries !== false ? "checked" : ""
+                                        }>
+                                        <label class="form-check-label">Estä entry vastakkaiseen 4h-trendiin</label>
                                       </div>
                                     </td>
                                   </tr>
@@ -2378,10 +3462,117 @@
                                 }">
                             </div>
                             <div class="mb-3">
+                              <h5>Peräkkäinen tappio</h5>
+                              <p class="text-muted small mb-2">
+                                Estää uuden sisäänmenon heti tappiokierroksen jälkeen (symbolikohtainen). TP/SL-sulut eivät esty.
+                              </p>
+                              <table class="table table-bordered">
+                                <tbody>
+                                  <tr>
+                                    <td class="col-4"><label class="form-label">Käytössä</label></td>
+                                    <td>
+                                      <div class="form-check">
+                                        <input type="checkbox" class="form-check-input block-consecutive-loss-enabled" ${
+                                          symbolData.blockConsecutiveLoss?.enabled ? "checked" : ""
+                                        }>
+                                        <label class="form-check-label">Estä sisäänmeno tappiokierroksen jälkeen</label>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td><label class="form-label">Ohita sisäänmenoja</label></td>
+                                    <td>
+                                      <input type="number" step="1" min="1" class="form-control block-consecutive-loss-skip-entries" placeholder="1" value="${
+                                        symbolData.blockConsecutiveLoss?.skipEntries ?? ""
+                                      }">
+                                      <small class="text-muted">Montako seuraavaa sisäänmenoyritystä ohitetaan cooldownin jälkeen (oletus 1).</small>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td><label class="form-label">Cooldown (min)</label></td>
+                                    <td>
+                                      <input type="number" step="1" min="0" class="form-control block-consecutive-loss-cooldown-minutes" placeholder="15" value="${
+                                        symbolData.blockConsecutiveLoss?.cooldownMinutes ?? ""
+                                      }">
+                                      <small class="text-muted">Tauko minuutteina heti tappiokierroksen jälkeen (oletus 15). Cooldown ei kuluta skip-luukkuja.</small>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td><label class="form-label">SL-cooldown (min)</label></td>
+                                    <td>
+                                      <input type="number" step="1" min="0" class="form-control block-consecutive-loss-sl-cooldown-minutes" placeholder="20" value="${
+                                        symbolData.blockConsecutiveLoss?.cooldownAfterStopLossMinutes ?? ""
+                                      }">
+                                      <small class="text-muted">Tauko STOP_LOSS-sulun jälkeen ennen uutta entryä (whipsaw-esto, oletus 20).</small>
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                            <div class="mb-3">
+                              <h5>Trade rate limit (churn)</h5>
+                              <table class="table table-bordered">
+                                <tbody>
+                                  <tr>
+                                    <td class="col-4"><label class="form-label">Käytössä</label></td>
+                                    <td>
+                                      <div class="form-check">
+                                        <input type="checkbox" class="form-check-input trade-rate-limit-enabled" ${
+                                          symbolData.tradeRateLimit?.enabled !== false ? "checked" : ""
+                                        }>
+                                        <label class="form-check-label">Rajoita kaupankäyntitiheyttä</label>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td><label class="form-label">Max trades / päivä</label></td>
+                                    <td>
+                                      <input type="number" step="1" min="0" class="form-control trade-rate-max-per-day" placeholder="16" value="${
+                                        symbolData.tradeRateLimit?.maxTradesPerDay ?? 16
+                                      }">
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td><label class="form-label">Min väli entryihin (min)</label></td>
+                                    <td>
+                                      <input type="number" step="1" min="0" class="form-control trade-rate-min-minutes" placeholder="12" value="${
+                                        symbolData.tradeRateLimit?.minMinutesBetweenEntries ?? 12
+                                      }">
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                            <div class="mb-3">
                                 <label class="form-label">Trade Fee Percentage (%)</label>
-                                <input type="number" step="0.01" class="form-control trade-fee-percentage" placeholder="e.g., 0.1" value="${
+                                <input type="number" step="0.01" class="form-control trade-fee-percentage" placeholder="auto (Binance BNB / API)" value="${
                                   symbolData.tradeFeePercentage || ""
                                 }">
+                                <div class="form-text">Tyhjä = live Binance päivittää automaattisesti BNB-saldon ja tradeFee-API:n mukaan. Lukitse asettamalla arvo ja <code>tradeFeePercentageAuto: false</code>.</div>
+                            </div>
+                            <div class="mb-3">
+                              <h5>Live order execution (Binance)</h5>
+                              <p class="text-muted small mb-2">Vain live-kauppa. Simulaatio täyttää heti kynttilähinnalla — näitä asetuksia ei käytetä simissä. Grid-moodi käyttää aina limitiä.</p>
+                              <table class="table table-bordered">
+                                <tbody>
+                                  <tr>
+                                    <td class="col-4"><label class="form-label">Osto</label></td>
+                                    <td>
+                                      <select class="form-select live-order-buy-mode">
+                                        ${liveOrderModeOptions(symbolData.liveOrderExecution?.buy, "buy")}
+                                      </select>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td><label class="form-label">Myynti</label></td>
+                                    <td>
+                                      <select class="form-select live-order-sell-mode">
+                                        ${liveOrderModeOptions(symbolData.liveOrderExecution?.sell, "sell")}
+                                      </select>
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
                             </div>
                             <div class="mb-3">
                               <h5>Trend</h5>
@@ -2451,13 +3642,14 @@
                                   <tr>
                                     <td><label class="form-label">Minimum Buy (%)</label></td>
                                     <td>
-                                      <input type="number" step="0.01" class="form-control profit-minimum-buy" placeholder="e.g., 0" value="${
+                                      <input type="number" step="0.01" class="form-control profit-minimum-buy" placeholder="e.g., 0.35" value="${
                                         symbolData.profit?.minimumBuy || ""
                                       }">
                                     </td>
                                   </tr>
                                 </tbody>
                               </table>
+                              <p class="text-muted small mt-1 mb-0 profit-fee-floor-hint"></p>
                             </div>
                             <div class="mb-3">
                               <h5>Growing Max</h5>
@@ -2482,10 +3674,12 @@
                                   <tr class="simulate-buy-amount-row d-none">
                                     <td><label class="form-label">Simulation buy amount (Quote)</label></td>
                                     <td>
-                                      <input type="number" step="0.01" class="form-control simulation-buy-amount-quote" placeholder="0 = max buy (all available quote)" value="${
-                                        symbolData.simulationBuyAmountQuote || ""
+                                      <input type="number" step="0.01" class="form-control simulation-buy-amount-quote" placeholder="100" value="${
+                                        symbolData.simulationBuyAmountQuote != null && symbolData.simulationBuyAmountQuote !== ""
+                                          ? symbolData.simulationBuyAmountQuote
+                                          : "100"
                                       }">
-                                      <small class="text-muted">0 tai tyhjä = käytä koko käytettävissä oleva quote-saldo.</small>
+                                      <small class="text-muted">Oletus 100. Käytetään myös quote-lompakkona jos Start balance on 0. Arvo 0 = ei kauppakohtaista kattoa (koko saldo).</small>
                                     </td>
                                   </tr>
                                 </tbody>
@@ -2613,6 +3807,21 @@
                                         symbolData.takeProfit?.drop || ""
                                       }">
                                       <small class="text-muted">Sulku kun huipusta pudonnut ≥ tämä % (vaatii arming + limit-lattia).</small>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td><label class="form-label">Partial close</label></td>
+                                    <td>
+                                      <div class="form-check mb-2">
+                                        <input type="checkbox" class="form-check-input take-profit-partial-enabled" ${
+                                          symbolData.takeProfit?.partialClose?.enabled ? "checked" : ""
+                                        }>
+                                        <label class="form-check-label">Ensimmäinen TP sulkee vain osan</label>
+                                      </div>
+                                      <input type="number" step="0.05" min="0.1" max="0.9" class="form-control take-profit-partial-fraction" placeholder="0.5" value="${
+                                        symbolData.takeProfit?.partialClose?.fraction ?? 0.5
+                                      }">
+                                      <small class="text-muted">Osuus (0.5 = 50%). Loput trailaa dropilla.</small>
                                     </td>
                                   </tr>
                                   <tr>
@@ -2751,7 +3960,11 @@
                               </table>
                             </div>
                             <div class="mb-3">
-                              <h5>Forced exit</h5>
+                              <h5>Forced exit / Stale exit</h5>
+                              <p class="text-muted small mb-2">
+                                Pehmeä forced exit sulkee voitolle (min profit).
+                                <strong>Stale exit (STALE_EXIT)</strong> on time-stop: sulku myös miinuksella max hours jälkeen.
+                              </p>
                               <table class="table table-bordered">
                                 <tbody>
                                   <tr>
@@ -2790,6 +4003,15 @@
                                       <small class="text-muted">Minimituotto % jonka alla forced exit ei laukea. Estää miinusmyynnit.</small>
                                     </td>
                                   </tr>
+                                  <tr>
+                                    <td><label class="form-label">Stale exit max hours</label></td>
+                                    <td>
+                                      <input type="number" min="0" max="168" step="0.5" class="form-control forced-exit-max-hours" placeholder="esim. 48" value="${
+                                        symbolData.forcedExit?.maxHours ?? ""
+                                      }">
+                                      <small class="text-muted">STALE_EXIT: tunnit avoimessa positiossa → sulje vaikka miinuksella. 0 tai tyhjä = pois. Sallittu 0–168 h (7 vrk).</small>
+                                    </td>
+                                  </tr>
                                 </tbody>
                               </table>
                             </div>
@@ -2800,21 +4022,33 @@
                               </div>
                               <div class="nested-section indicators-section-body">
                                 <div class="mb-3 border rounded p-2 bg-light">
-                                  <label class="form-label">Indikaattorisetti</label>
+                                  <label class="form-label">Indikaattorisetti (paradigma)</label>
                                   <select class="form-select indicators-preset mb-2">
+                                    <option value="meanReversion" ${
+                                      !symbolData.indicatorsPreset ||
+                                      symbolData.indicatorsPreset === "meanReversion"
+                                        ? "selected"
+                                        : ""
+                                    }>Mean-reversion (RSI + BB + CMF)</option>
+                                    <option value="meanReversionVolatile" ${
+                                      symbolData.indicatorsPreset === "meanReversionVolatile" ? "selected" : ""
+                                    }>Mean-reversion volatile (leveämmät kaistat)</option>
+                                    <option value="momentum" ${
+                                      symbolData.indicatorsPreset === "momentum" ? "selected" : ""
+                                    }>Momentum (MACD + ADX + CMF)</option>
                                     <option value="complementary" ${
-                                      symbolData.indicatorsPreset !== "custom" ? "selected" : ""
-                                    }>Suositeltu (MACD + RSI + ADX + BB + CMF)</option>
+                                      symbolData.indicatorsPreset === "complementary" ? "selected" : ""
+                                    }>Legacy mix (ei suositella)</option>
                                     <option value="custom" ${
                                       symbolData.indicatorsPreset === "custom" ? "selected" : ""
                                     }>Oma (kaikki käsin)</option>
                                   </select>
                                   <p class="text-muted small mb-2">
-                                    Suositeltu: momentum (MACD), ääripäät (RSI), trendivoima (ADX), kaista (Bollinger), rahavirta (CMF).
-                                    Stochastic, Renko, DMI ja trade-EMA pois — trendi tulee yllä olevasta Trend-lohkosta (1d).
+                                    Valitse <strong>yksi</strong> paradigma. Mean-reversion ja momentum samassa setissä
+                                    aiheuttavat myöhäisiä ostoja huipulla. Scout-indikaattorit synkataan setin mukaan.
                                   </p>
                                   <button type="button" class="btn btn-sm btn-outline-primary apply-recommended-indicators">
-                                    Päivitä ruutu suositelluksi
+                                    Päivitä ruutu valituksi setiksi
                                   </button>
                                 </div>
                                 <div class="mb-3">
@@ -3618,6 +4852,21 @@
                                     </td>
                                   </tr>
                                   <tr>
+                                    <td><label class="form-label">Partial close</label></td>
+                                    <td>
+                                      <div class="form-check mb-2">
+                                        <input type="checkbox" class="form-check-input take-profit-partial-enabled" ${
+                                          symbolData.takeProfit?.partialClose?.enabled ? "checked" : ""
+                                        }>
+                                        <label class="form-check-label">Ensimmäinen TP sulkee vain osan</label>
+                                      </div>
+                                      <input type="number" step="0.05" min="0.1" max="0.9" class="form-control take-profit-partial-fraction" placeholder="0.5" value="${
+                                        symbolData.takeProfit?.partialClose?.fraction ?? 0.5
+                                      }">
+                                      <small class="text-muted">Osuus (0.5 = 50%). Loput trailaa dropilla.</small>
+                                    </td>
+                                  </tr>
+                                  <tr>
                                     <td><label class="form-label">Force after</label></td>
                                     <td>
                                       <div class="form-check mb-2">
@@ -3843,8 +5092,8 @@
                             </div>
 
                             <div class="mb-3">
-                              <h5>Forced exit</h5>
-                              <p class="text-muted small mb-2">HiLow ei käytä forced exit -signaaleja — asetus säilyy tiedostossa algorithmic-tilaa varten.</p>
+                              <h5>Forced exit / Stale exit</h5>
+                              <p class="text-muted small mb-2">HiLow ei käytä forced/stale exit -signaaleja — asetus säilyy tiedostossa algorithmic-tilaa varten. Stale exit = time-stop (max hours).</p>
                               <table class="table table-bordered">
                                 <tbody>
                                   <tr>
@@ -3883,6 +5132,15 @@
                                       <small class="text-muted">Minimituotto % jonka alla forced exit ei laukea. Estää miinusmyynnit.</small>
                                     </td>
                                   </tr>
+                                  <tr>
+                                    <td><label class="form-label">Stale exit max hours</label></td>
+                                    <td>
+                                      <input type="number" min="0" max="168" step="0.5" class="form-control forced-exit-max-hours" placeholder="esim. 48" value="${
+                                        symbolData.forcedExit?.maxHours ?? ""
+                                      }">
+                                      <small class="text-muted">STALE_EXIT: tunnit avoimessa positiossa → sulje vaikka miinuksella. 0 tai tyhjä = pois. Sallittu 0–168 h (7 vrk).</small>
+                                    </td>
+                                  </tr>
                                 </tbody>
                               </table>
                             </div>
@@ -3909,10 +5167,12 @@
                                   <tr class="simulate-buy-amount-row d-none">
                                     <td><label class="form-label">Simulation buy amount (Quote)</label></td>
                                     <td>
-                                      <input type="number" step="0.01" class="form-control simulation-buy-amount-quote" placeholder="0 = max buy (all available quote)" value="${
-                                        symbolData.simulationBuyAmountQuote || ""
+                                      <input type="number" step="0.01" class="form-control simulation-buy-amount-quote" placeholder="100" value="${
+                                        symbolData.simulationBuyAmountQuote != null && symbolData.simulationBuyAmountQuote !== ""
+                                          ? symbolData.simulationBuyAmountQuote
+                                          : "100"
                                       }">
-                                      <small class="text-muted">0 tai tyhjä = käytä koko käytettävissä oleva quote-saldo.</small>
+                                      <small class="text-muted">Oletus 100. Käytetään myös quote-lompakkona jos Start balance on 0. Arvo 0 = ei kauppakohtaista kattoa (koko saldo).</small>
                                     </td>
                                   </tr>
                                 </tbody>
@@ -4039,9 +5299,12 @@
                                   <tr class="simulate-buy-amount-row d-none">
                                     <td><label class="form-label">Simulation buy amount (Quote)</label></td>
                                     <td>
-                                      <input type="number" step="0.01" class="form-control simulation-buy-amount-quote" placeholder="0 = max buy" value="${
-                                        symbolData.simulationBuyAmountQuote || ""
+                                      <input type="number" step="0.01" class="form-control simulation-buy-amount-quote" placeholder="100" value="${
+                                        symbolData.simulationBuyAmountQuote != null && symbolData.simulationBuyAmountQuote !== ""
+                                          ? symbolData.simulationBuyAmountQuote
+                                          : "100"
                                       }">
+                                      <small class="text-muted">Oletus 100. Käytetään myös quote-lompakkona jos Start balance on 0. Arvo 0 = ei kauppakohtaista kattoa (koko saldo).</small>
                                     </td>
                                   </tr>
                                 </tbody>
@@ -4122,25 +5385,38 @@
           });
           $symbolDiv.find(".apply-recommended-indicators").on("click", function () {
             applyRecommendedIndicatorsToDom($symbolDiv);
-            $symbolDiv.find(".indicators-preset").val("complementary");
           });
           $symbolDiv.find(".indicators-preset").on("change", function () {
-            if ($(this).val() === "complementary") {
+            var v = $(this).val();
+            if (v && v !== "custom") {
               applyRecommendedIndicatorsToDom($symbolDiv);
             }
           });
+          $symbolDiv.find(".trade-fee-percentage").on("change input", function () {
+            if (window.HoobotIndicatorsPreset) {
+              window.HoobotIndicatorsPreset.updateProfitFloorHint($symbolDiv);
+            }
+          });
+          if (window.HoobotIndicatorsPreset) {
+            window.HoobotIndicatorsPreset.updateProfitFloorHint($symbolDiv);
+          }
           if (
             exchangeMode === "algorithmic" &&
             symbolData.indicatorsPreset !== "custom" &&
-            (!symbolData.indicators || symbolData.indicatorsPreset === "complementary" || !symbolData.indicatorsPreset)
+            (!symbolData.indicators ||
+              symbolData.indicatorsPreset === "meanReversion" ||
+              symbolData.indicatorsPreset === "meanReversionVolatile" ||
+              symbolData.indicatorsPreset === "momentum" ||
+              symbolData.indicatorsPreset === "complementary" ||
+              !symbolData.indicatorsPreset)
           ) {
-            var hasComplementaryOn =
-              symbolData.indicators &&
-              symbolData.indicators.macd &&
-              symbolData.indicators.macd.enabled &&
-              symbolData.indicators.rsi &&
-              symbolData.indicators.rsi.enabled;
-            if (!hasComplementaryOn) {
+            var preset = symbolData.indicatorsPreset || "meanReversion";
+            var hasParadigmOn =
+              preset === "momentum"
+                ? symbolData.indicators && symbolData.indicators.macd && symbolData.indicators.macd.enabled
+                : symbolData.indicators && symbolData.indicators.rsi && symbolData.indicators.rsi.enabled;
+            if (!hasParadigmOn) {
+              $symbolDiv.find(".indicators-preset").val(preset);
               applyRecommendedIndicatorsToDom($symbolDiv);
             }
           }
@@ -4157,7 +5433,26 @@
             name: ($symbol.find(".symbol-name").val() || "").toString().trim(),
             timeframes: tfVal ? tfVal.split(",").map(function (tf) { return tf.trim(); }).filter(function (tf) { return tf; }) : [],
             agreement: parseFloat($symbol.find(".agreement").val()) || 0,
-            indicatorsPreset: ($symbol.find(".indicators-preset").val() || "complementary").toString(),
+            scoutConfirm: (function () {
+              var indicators = [];
+              if ($symbol.find(".scout-indicator-rsi").is(":checked")) indicators.push("rsi");
+              if ($symbol.find(".scout-indicator-bb").is(":checked")) indicators.push("bb");
+              if ($symbol.find(".scout-indicator-macd").is(":checked")) indicators.push("macd");
+              var confirmAgreementRaw = $symbol.find(".confirm-agreement").val();
+              var confirmAgreement = parseFloat(confirmAgreementRaw);
+              var out = {
+                enabled: $symbol.find(".scout-confirm-enabled").is(":checked"),
+                scoutTimeframe: ($symbol.find(".scout-timeframe").val() || "1m").toString().trim(),
+                confirmTimeframe: ($symbol.find(".confirm-timeframe").val() || "3m").toString().trim(),
+                scoutMinShare: parseFloat($symbol.find(".scout-min-share").val()) || 40,
+                scoutIndicators: indicators.length ? indicators : ["rsi", "bb"],
+              };
+              if (confirmAgreementRaw !== "" && Number.isFinite(confirmAgreement)) {
+                out.confirmAgreement = confirmAgreement;
+              }
+              return out;
+            })(),
+            indicatorsPreset: ($symbol.find(".indicators-preset").val() || "meanReversion").toString(),
             source: $symbol.find(".symbol-source").val(),
             trend: {
               enabled: $symbol.find(".trend-enabled").is(":checked"),
@@ -4174,11 +5469,60 @@
             profit: { enabled: $symbol.find(".profit-enabled").is(":checked"), minimumSell: parseFloat($symbol.find(".profit-minimum-sell").val()) || 0, minimumBuy: parseFloat($symbol.find(".profit-minimum-buy").val()) || 0 },
             growingMax: { buy: parseInt($symbol.find(".growing-max-buy").val()) || 0, sell: parseInt($symbol.find(".growing-max-sell").val()) || 0 },
             simulationBuyAmountQuote: window.__simulationUi
-              ? parseFloat($symbol.find(".simulation-buy-amount-quote").val()) || 0
+              ? (() => {
+                  const raw = $symbol.find(".simulation-buy-amount-quote").val();
+                  if (raw === "" || raw == null) return 100;
+                  const v = parseFloat(String(raw));
+                  return Number.isFinite(v) ? v : 100;
+                })()
               : undefined,
             closePercentage: parseFloat($symbol.find(".close-percentage").val()) || 0,
             maximumAgeOfOrder: parseInt($symbol.find(".maximum-age-of-order").val()) || 0,
+            blockConsecutiveLoss: (function () {
+              if (!$symbol.find(".block-consecutive-loss-enabled").length) return undefined;
+              var skipRaw = $symbol.find(".block-consecutive-loss-skip-entries").val();
+              var skipEntries = parseInt(skipRaw, 10);
+              var cooldownRaw = $symbol.find(".block-consecutive-loss-cooldown-minutes").val();
+              var cooldownMinutes = parseInt(cooldownRaw, 10);
+              var slCooldownRaw = $symbol.find(".block-consecutive-loss-sl-cooldown-minutes").val();
+              var slCooldownMinutes = parseInt(slCooldownRaw, 10);
+              var out = {
+                enabled: $symbol.find(".block-consecutive-loss-enabled").is(":checked"),
+              };
+              if (Number.isFinite(skipEntries) && skipEntries > 0) {
+                out.skipEntries = skipEntries;
+              }
+              if (Number.isFinite(cooldownMinutes) && cooldownMinutes >= 0) {
+                out.cooldownMinutes = cooldownMinutes;
+              }
+              if (Number.isFinite(slCooldownMinutes) && slCooldownMinutes >= 0) {
+                out.cooldownAfterStopLossMinutes = slCooldownMinutes;
+              }
+              return out;
+            })(),
+            tradeRateLimit: (function () {
+              if (!$symbol.find(".trade-rate-limit-enabled").length) return undefined;
+              var maxRaw = parseInt($symbol.find(".trade-rate-max-per-day").val(), 10);
+              var minRaw = parseInt($symbol.find(".trade-rate-min-minutes").val(), 10);
+              var out = {
+                enabled: $symbol.find(".trade-rate-limit-enabled").is(":checked"),
+              };
+              if (Number.isFinite(maxRaw) && maxRaw >= 0) out.maxTradesPerDay = maxRaw;
+              if (Number.isFinite(minRaw) && minRaw >= 0) out.minMinutesBetweenEntries = minRaw;
+              return out;
+            })(),
             tradeFeePercentage: parseFloat($symbol.find(".trade-fee-percentage").val()) || 0,
+            liveOrderExecution: (function () {
+              var buy = ($symbol.find(".live-order-buy-mode").val() || "").toString();
+              var sell = ($symbol.find(".live-order-sell-mode").val() || "").toString();
+              var valid = function (v) {
+                return v === "limit" || v === "aggressiveLimit" || v === "market";
+              };
+              var out = {};
+              if (valid(buy)) out.buy = buy;
+              if (valid(sell)) out.sell = sell;
+              return Object.keys(out).length ? out : undefined;
+            })(),
             stopLoss: { enabled: $symbol.find(".stop-loss-enabled").is(":checked"), stopTrading: $symbol.find(".stop-loss-stop-trading").is(":checked"), pnl: parseFloat($symbol.find(".stop-loss-pnl").val()) || 0, agingPerHour: parseFloat($symbol.find(".stop-loss-aging-per-hour").val()) || 0 },
             stopLossBuy: { enabled: $symbol.find(".stop-loss-buy-enabled").is(":checked"), pnl: parseFloat($symbol.find(".stop-loss-buy-pnl").val()) || 0, agingPerHour: parseFloat($symbol.find(".stop-loss-buy-aging-per-hour").val()) || 0 },
             takeProfit: {
@@ -4191,6 +5535,10 @@
               forceAfterCandles: parseInt($symbol.find(".take-profit-force-after-candles").val(), 10),
               forceAfterDrop: parseFloat($symbol.find(".take-profit-force-after-drop").val()),
               forceMinProfit: parseFloat($symbol.find(".take-profit-force-min-profit").val()),
+              partialClose: {
+                enabled: $symbol.find(".take-profit-partial-enabled").is(":checked"),
+                fraction: parseFloat($symbol.find(".take-profit-partial-fraction").val()) || 0.5,
+              },
             },
             takeProfitBuy: {
               enabled: $symbol.find(".take-profit-buy-enabled").is(":checked"),
@@ -4202,6 +5550,10 @@
               forceAfterCandles: parseInt($symbol.find(".take-profit-buy-force-after-candles").val(), 10),
               forceAfterDrop: parseFloat($symbol.find(".take-profit-buy-force-after-drop").val()),
               forceMinProfit: parseFloat($symbol.find(".take-profit-buy-force-min-profit").val()),
+              partialClose: {
+                enabled: $symbol.find(".take-profit-partial-enabled").is(":checked"),
+                fraction: parseFloat($symbol.find(".take-profit-partial-fraction").val()) || 0.5,
+              },
             },
             extreme: {
               sellProfitQuote: parseFloat($symbol.find(".extreme-sell-profit-quote").val()) || 0,
@@ -4238,6 +5590,9 @@
               trendAgreement: $symbol.find(".adaptive-trend-agreement").is(":checked"),
               trendAlignedBonus: parseFloat($symbol.find(".adaptive-trend-aligned-bonus").val()) || 0,
               trendCounterPenalty: parseFloat($symbol.find(".adaptive-trend-counter-penalty").val()) || 0,
+              blockCounterTrendEntries: $symbol.find(".adaptive-block-counter-trend").length
+                ? $symbol.find(".adaptive-block-counter-trend").is(":checked")
+                : true,
               conflictEnabled: $symbol.find(".adaptive-conflict-enabled").is(":checked"),
               conflictMinShare: parseFloat($symbol.find(".adaptive-conflict-min-share").val()) || 0,
               conflictPenalty: parseFloat($symbol.find(".adaptive-conflict-penalty").val()) || 0,
@@ -4246,21 +5601,21 @@
               agreementEaseMax: parseFloat($symbol.find(".adaptive-agreement-ease-max").val()) || 0,
               feeAwareMinProfit: $symbol.find(".adaptive-fee-aware-min-profit").is(":checked"),
             },
-            forcedExit: { enabled: $symbol.find(".forced-exit-enabled").is(":checked"), candles: parseInt($symbol.find(".forced-exit-candles").val(), 10) || undefined, change: parseFloat($symbol.find(".forced-exit-change").val()) || undefined, minProfit: parseFloat($symbol.find(".forced-exit-min-profit").val()) || undefined },
+            forcedExit: { enabled: $symbol.find(".forced-exit-enabled").is(":checked"), candles: parseInt($symbol.find(".forced-exit-candles").val(), 10) || undefined, change: parseFloat($symbol.find(".forced-exit-change").val()) || undefined, minProfit: parseFloat($symbol.find(".forced-exit-min-profit").val()) || undefined, maxHours: parseFloat($symbol.find(".forced-exit-max-hours").val()) || undefined },
             indicators: {
-              sma: { enabled: $symbol.find(".sma-enabled").is(":checked"), length: parseInt($symbol.find(".sma-length").val()) || 0, weight: parseInt($symbol.find(".sma-weight").val()) || 0 },
-              renko: { enabled: $symbol.find(".renko-enabled").is(":checked"), multiplier: parseInt($symbol.find(".renko-multiplier").val()) || 0, brickSize: parseInt($symbol.find(".renko-brick-size").val()) || 0, weight: parseInt($symbol.find(".renko-weight").val()) || 0 },
-              ema: { enabled: $symbol.find(".ema-enabled").is(":checked"), short: parseInt($symbol.find(".ema-short").val()) || 0, long: parseInt($symbol.find(".ema-long").val()) || 0, weight: parseInt($symbol.find(".ema-weight").val()) || 0 },
+              sma: { enabled: $symbol.find(".sma-enabled").is(":checked"), length: parseInt($symbol.find(".sma-length").val()) || 0, weight: parseFloat($symbol.find(".sma-weight").val()) || 0 },
+              renko: { enabled: $symbol.find(".renko-enabled").is(":checked"), multiplier: parseInt($symbol.find(".renko-multiplier").val()) || 0, brickSize: parseInt($symbol.find(".renko-brick-size").val()) || 0, weight: parseFloat($symbol.find(".renko-weight").val()) || 0 },
+              ema: { enabled: $symbol.find(".ema-enabled").is(":checked"), short: parseInt($symbol.find(".ema-short").val()) || 0, long: parseInt($symbol.find(".ema-long").val()) || 0, weight: parseFloat($symbol.find(".ema-weight").val()) || 0 },
               macd: { enabled: $symbol.find(".macd-enabled").is(":checked"), fast: parseInt($symbol.find(".macd-fast").val()) || 0, slow: parseInt($symbol.find(".macd-slow").val()) || 0, signal: parseInt($symbol.find(".macd-signal").val()) || 0, source: $symbol.find(".macd-source").val(), weight: parseFloat($symbol.find(".macd-weight").val()) || 0 },
-              adx: { enabled: $symbol.find(".adx-enabled").is(":checked"), dilength: parseInt($symbol.find(".adx-dilength").val()) || 0, adxSmoothing: parseInt($symbol.find(".adx-smoothing").val()) || 0, weight: parseInt($symbol.find(".adx-weight").val()) || 0 },
-              rsi: { enabled: $symbol.find(".rsi-enabled").is(":checked"), length: parseInt($symbol.find(".rsi-length").val()) || 0, smoothing: { type: $symbol.find(".rsi-smoothing-type").val(), length: parseInt($symbol.find(".rsi-smoothing-length").val()) || 0 }, history: parseInt($symbol.find(".rsi-history").val()) || 0, tresholds: { overbought: parseInt($symbol.find(".rsi-treshold-overbought").val(), 10) || 0, oversold: parseInt($symbol.find(".rsi-treshold-oversold").val(), 10) || 0 }, weight: parseInt($symbol.find(".rsi-weight").val()) || 0 },
-              atr: { enabled: $symbol.find(".atr-enabled").is(":checked"), length: parseInt($symbol.find(".atr-length").val()) || 0, weight: parseInt($symbol.find(".atr-weight").val()) || 0 },
-              obv: { enabled: $symbol.find(".obv-enabled").is(":checked"), length: parseInt($symbol.find(".obv-length").val()) || 0, weight: parseInt($symbol.find(".obv-weight").val()) || 0 },
-              cmf: { enabled: $symbol.find(".cmf-enabled").is(":checked"), length: parseInt($symbol.find(".cmf-length").val()) || 0, history: parseInt($symbol.find(".cmf-history").val()) || 0, tresholds: { overbought: parseInt($symbol.find(".cmf-treshold-overbought").val(), 10) || 0, oversold: parseInt($symbol.find(".cmf-treshold-oversold").val(), 10) || 0 }, weight: parseInt($symbol.find(".cmf-weight").val()) || 0 },
-              bb: { enabled: $symbol.find(".bb-enabled").is(":checked"), length: parseInt($symbol.find(".bb-length").val()) || 0, multiplier: parseFloat($symbol.find(".bb-multiplier").val()) || 0, average: $symbol.find(".bb-average").val() === "EMA" ? "EMA" : "SMA", history: parseInt($symbol.find(".bb-history").val()) || 0, weight: parseInt($symbol.find(".bb-weight").val()) || 0 },
-              so: { enabled: $symbol.find(".so-enabled").is(":checked"), kPeriod: parseInt($symbol.find(".so-k-period").val()) || 0, dPeriod: parseInt($symbol.find(".so-d-period").val()) || 0, smoothing: parseInt($symbol.find(".so-smoothing").val()) || 0, tresholds: { overbought: parseInt($symbol.find(".so-treshold-overbought").val(), 10) || 0, oversold: parseInt($symbol.find(".so-treshold-oversold").val(), 10) || 0 }, weight: parseInt($symbol.find(".so-weight").val()) || 0 },
-              srsi: { enabled: $symbol.find(".srsi-enabled").is(":checked"), rsiLength: parseInt($symbol.find(".srsi-rsi-length").val()) || 0, stochLength: parseInt($symbol.find(".srsi-stoch-length").val()) || 0, kPeriod: parseInt($symbol.find(".srsi-k-period").val()) || 0, dPeriod: parseInt($symbol.find(".srsi-d-period").val()) || 0, smoothK: parseInt($symbol.find(".srsi-smooth-k").val()) || 0, smoothD: parseInt($symbol.find(".srsi-smooth-d").val()) || 0, history: parseInt($symbol.find(".srsi-history").val()) || 0, tresholds: { overbought: parseInt($symbol.find(".srsi-treshold-overbought").val(), 10) || 0, oversold: parseInt($symbol.find(".srsi-treshold-oversold").val(), 10) || 0 }, weight: parseInt($symbol.find(".srsi-weight").val()) || 0 },
-              dmi: { enabled: $symbol.find(".dmi-enabled").is(":checked"), dmiLength: parseInt($symbol.find(".dmi-length").val()) || 0, adxSmoothing: parseFloat($symbol.find(".dmi-adx-smoothing").val()) || 0, average: $symbol.find(".dmi-multiplier").val(), history: parseInt($symbol.find(".dmi-history").val()) || 0, weight: parseInt($symbol.find(".dmi-weight").val()) || 0 },
+              adx: { enabled: $symbol.find(".adx-enabled").is(":checked"), dilength: parseInt($symbol.find(".adx-dilength").val()) || 0, adxSmoothing: parseInt($symbol.find(".adx-smoothing").val()) || 0, weight: parseFloat($symbol.find(".adx-weight").val()) || 0 },
+              rsi: { enabled: $symbol.find(".rsi-enabled").is(":checked"), length: parseInt($symbol.find(".rsi-length").val()) || 0, smoothing: { type: $symbol.find(".rsi-smoothing-type").val(), length: parseInt($symbol.find(".rsi-smoothing-length").val()) || 0 }, history: parseInt($symbol.find(".rsi-history").val()) || 0, tresholds: { overbought: parseFloat($symbol.find(".rsi-treshold-overbought").val()) || 0, oversold: parseFloat($symbol.find(".rsi-treshold-oversold").val()) || 0 }, weight: parseFloat($symbol.find(".rsi-weight").val()) || 0 },
+              atr: { enabled: $symbol.find(".atr-enabled").is(":checked"), length: parseInt($symbol.find(".atr-length").val()) || 0, weight: parseFloat($symbol.find(".atr-weight").val()) || 0 },
+              obv: { enabled: $symbol.find(".obv-enabled").is(":checked"), length: parseInt($symbol.find(".obv-length").val()) || 0, weight: parseFloat($symbol.find(".obv-weight").val()) || 0 },
+              cmf: { enabled: $symbol.find(".cmf-enabled").is(":checked"), length: parseInt($symbol.find(".cmf-length").val()) || 0, history: parseInt($symbol.find(".cmf-history").val()) || 0, tresholds: { overbought: parseFloat($symbol.find(".cmf-treshold-overbought").val()) || 0, oversold: parseFloat($symbol.find(".cmf-treshold-oversold").val()) || 0 }, weight: parseFloat($symbol.find(".cmf-weight").val()) || 0 },
+              bb: { enabled: $symbol.find(".bb-enabled").is(":checked"), length: parseInt($symbol.find(".bb-length").val()) || 0, multiplier: parseFloat($symbol.find(".bb-multiplier").val()) || 0, average: $symbol.find(".bb-average").val() === "EMA" ? "EMA" : "SMA", history: parseInt($symbol.find(".bb-history").val()) || 0, weight: parseFloat($symbol.find(".bb-weight").val()) || 0 },
+              so: { enabled: $symbol.find(".so-enabled").is(":checked"), kPeriod: parseInt($symbol.find(".so-k-period").val()) || 0, dPeriod: parseInt($symbol.find(".so-d-period").val()) || 0, smoothing: parseInt($symbol.find(".so-smoothing").val()) || 0, tresholds: { overbought: parseFloat($symbol.find(".so-treshold-overbought").val()) || 0, oversold: parseFloat($symbol.find(".so-treshold-oversold").val()) || 0 }, weight: parseFloat($symbol.find(".so-weight").val()) || 0 },
+              srsi: { enabled: $symbol.find(".srsi-enabled").is(":checked"), rsiLength: parseInt($symbol.find(".srsi-rsi-length").val()) || 0, stochLength: parseInt($symbol.find(".srsi-stoch-length").val()) || 0, kPeriod: parseInt($symbol.find(".srsi-k-period").val()) || 0, dPeriod: parseInt($symbol.find(".srsi-d-period").val()) || 0, smoothK: parseInt($symbol.find(".srsi-smooth-k").val()) || 0, smoothD: parseInt($symbol.find(".srsi-smooth-d").val()) || 0, history: parseInt($symbol.find(".srsi-history").val()) || 0, tresholds: { overbought: parseFloat($symbol.find(".srsi-treshold-overbought").val()) || 0, oversold: parseFloat($symbol.find(".srsi-treshold-oversold").val()) || 0 }, weight: parseFloat($symbol.find(".srsi-weight").val()) || 0 },
+              dmi: { enabled: $symbol.find(".dmi-enabled").is(":checked"), dmiLength: parseInt($symbol.find(".dmi-length").val()) || 0, adxSmoothing: parseFloat($symbol.find(".dmi-adx-smoothing").val()) || 0, average: $symbol.find(".dmi-multiplier").val(), history: parseInt($symbol.find(".dmi-history").val()) || 0, weight: parseFloat($symbol.find(".dmi-weight").val()) || 0 },
             },
           };
         }
@@ -4430,23 +5785,36 @@
           requestSimulationStop();
         });
 
-        // Explicit save button for simulation settings
-        $("#saveSimulateSettingsBtn").on("click", function () {
+        // Explicit save button for simulation settings (Simulate tab + Settings)
+        function saveSimulationSettingsOnly(statusTarget) {
           const config = buildConfigFromForm();
-          $("#simulate-save-status").text("Tallennetaan simulaatioasetuksia...");
-          saveConfigToServer(config)
+          var $status = statusTarget ? $(statusTarget) : $("#simulate-save-status");
+          if ($status.length) $status.text("Tallennetaan simulaatioasetuksia...");
+          return saveConfigToServer(config)
             .then(function () {
               window.__lastLoadedSettings = config;
               refreshSimEffectiveConfigInfo(config);
               const years = Number(config.simulationHistoryYears || 0);
-              $("#simulate-save-status").text(
-                "Tallennettu. simulationHistoryYears = " + years + " (" + (years > 0 ? "rajattu" : "koko historia") + ")."
-              );
+              var msg =
+                "Tallennettu. simulationHistoryYears = " +
+                years +
+                " (" +
+                formatSimHistoryYearsLabel(years) +
+                ").";
+              if ($status.length) $status.text(msg);
+              return config;
             })
             .fail(function (xhr, status, error) {
               const msg = xhr.responseJSON?.message || error || status || "Tuntematon virhe";
-              $("#simulate-save-status").text("Tallennus epäonnistui: " + msg);
+              if ($status.length) $status.text("Tallennus epäonnistui: " + msg);
+              throw msg;
             });
+        }
+        $("#saveSimulateSettingsBtn").on("click", function () {
+          saveSimulationSettingsOnly("#simulate-save-status");
+        });
+        $("#saveSimSettingsOnlyBtn").on("click", function () {
+          saveSimulationSettingsOnly("#settings-sim-history-status");
         });
 
         // Load previously saved simulation result without re-running simulation
@@ -4752,8 +6120,12 @@
             return;
           }
           $("#sim-result-candles").text(String(data.candleRows ?? "—"));
-          $("#sim-result-start").text(Number(data.startingBalance).toFixed(2));
-          $("#sim-result-final").text(Number(data.finalPortfolio).toFixed(2));
+          $("#sim-result-start").text(
+            Number.isFinite(Number(data.startingBalance)) ? Number(data.startingBalance).toFixed(2) : "—"
+          );
+          $("#sim-result-final").text(
+            Number.isFinite(Number(data.finalPortfolio)) ? Number(data.finalPortfolio).toFixed(2) : "—"
+          );
           var roiStr = data.roiPercent != null ? data.roiPercent + " %" : (Number(data.roi) * 100).toFixed(2) + " %";
           $("#sim-result-roi").text(roiStr);
           var algoN = Number(data.algorithmicCallbackErrors);
@@ -4862,6 +6234,53 @@
         if ($(".simulate-container").is(":visible")) {
           refreshSimulateCheckpointUi();
         }
+
+        function formatGridProgressFromSnapshot(gp) {
+          var total = Number(gp.variantCount || 0);
+          var done = Number(gp.okResults || 0);
+          var pct = total > 0 ? (done / total) * 100 : 0;
+          $("#sim-grid-progress-wrap").show();
+          $("#sim-grid-variant-progress-label").text(
+            "Valmiit variantit " + done + "/" + total + " (" + pct.toFixed(1) + " %)"
+          );
+          $("#sim-grid-variant-progress-bar")
+            .css("width", Math.min(100, Math.max(0, pct)) + "%")
+            .removeClass("progress-bar-animated");
+          $("#sim-grid-progress-label").text("Tallennettu levyllä — jatka painikkeesta.");
+          $("#sim-grid-progress-bar")
+            .css("width", Math.min(100, Math.max(0, pct)) + "%")
+            .removeClass("progress-bar-animated");
+        }
+
+        function applyResumableGridUi(st) {
+          if (!window.__simulationUi) return;
+          if (st && st.running) {
+            $("#sim-grid-resume-wrap").hide();
+            $("#runSimGridBtn").text("Aja grid-simulaatio");
+            return;
+          }
+          if (st && st.resumable && st.gridProgress) {
+            var gp = st.gridProgress;
+            var extra = gp.updatedAt ? " Viimeisin tallennus: " + gp.updatedAt + "." : "";
+            $("#sim-grid-resume-text").text(
+              "Kesken jäänyt grid: " +
+                gp.okResults +
+                "/" +
+                gp.variantCount +
+                " varianttia valmiina levyllä." +
+                extra +
+                " Paina «Jatka gridiä» — valmiit variantit ohitetaan automaattisesti."
+            );
+            $("#sim-grid-resume-wrap").show();
+            $("#runSimGridBtn").text("Jatka gridiä");
+            formatGridProgressFromSnapshot(gp);
+            $("#sim-grid-status").text("Grid kesken — voidaan jatkaa painikkeesta.");
+          } else {
+            $("#sim-grid-resume-wrap").hide();
+            $("#runSimGridBtn").text("Aja grid-simulaatio");
+          }
+        }
+        window.applyResumableGridUi = applyResumableGridUi;
 
         function runSimulation(opts) {
           opts = opts || {};
@@ -5021,6 +6440,7 @@
                 }
               }
               $("#sim-grid-status").text("Tallennetaan ja käynnistetään grid…");
+              $("#sim-grid-resume-wrap").hide();
               $("#sim-grid-warnings").hide().empty();
               $("#sim-grid-progress-wrap").show();
               $("#sim-grid-variant-progress-label").text("Variantit 0/? (0.0 %)");
@@ -5090,7 +6510,8 @@
                               sp.total +
                               " (" +
                               pct.toFixed(1) +
-                              " %)"
+                              " %) | kauppoja " +
+                              (sp.simTrades ?? 0)
                           );
                           $("#sim-grid-status").text(
                             "Grid käynnissä: variantti " +
@@ -5103,7 +6524,11 @@
                               sp.total +
                               " (" +
                               pct.toFixed(1) +
-                              " %)" +
+                              " %) | kauppoja " +
+                              (sp.simTrades ?? 0) +
+                              (Number(sp.simTrades) === 0
+                                ? " — saldo pysyy alussa kunnes 1. entry"
+                                : "") +
                               elapsedText +
                               etaText
                           );
@@ -5133,7 +6558,16 @@
                       return;
                     }
                     clearInterval(poll);
-                    $("#sim-grid-progress-wrap").hide();
+                    $("#sim-grid-resume-wrap").hide();
+                    $("#runSimGridBtn").text("Aja grid-simulaatio");
+                    if (st && st.resumable && st.gridProgress && st.lastError) {
+                      applyResumableGridUi(st);
+                    } else {
+                      $("#sim-grid-progress-wrap").hide();
+                    }
+                    if ($(".simsummary-container").is(":visible")) {
+                      loadSimulationSummary();
+                    }
                     if (st.lastError) {
                       $("#sim-grid-status").text("Virhe: " + st.lastError);
                       return;
@@ -5355,13 +6789,9 @@
             $("#crypto-calc-result-header").text("Arvo (" + currency + ")");
             $status.text("Paivitetaan hintoja...");
             return $.ajax({
-              url: "https://min-api.cryptocompare.com/data/pricemultifull",
+              url: "/api/crypto/prices",
               method: "GET",
               dataType: "json",
-              data: {
-                fsyms: "KAS,RXD,ALEO",
-                tsyms: "USD,EUR",
-              },
               timeout: 12000,
             })
               .then(function (payload) {
@@ -5386,14 +6816,16 @@
                 $status.text(
                   "Paivitetty " +
                     new Date().toLocaleTimeString("fi-FI") +
-                    " (lahde: CryptoCompare, valuutta " +
+                    " (lahde: CoinGecko, valuutta " +
                     currency +
                     ")"
                 );
               })
               .fail(function (xhr) {
                 const msg =
-                  (xhr && xhr.responseJSON && (xhr.responseJSON.Message || xhr.responseJSON.message)) ||
+                  (xhr &&
+                    xhr.responseJSON &&
+                    (xhr.responseJSON.error || xhr.responseJSON.Message || xhr.responseJSON.message)) ||
                   "Hintojen haku epaonnistui.";
                 $status.text(msg);
               });
@@ -5473,7 +6905,13 @@
                   }
                   if (!st || !st.running) {
                     clearGridPoll();
-                    $("#sim-grid-progress-wrap").hide();
+                    if (st && st.resumable && st.gridProgress) {
+                      applyResumableGridUi(st);
+                    } else {
+                      $("#sim-grid-progress-wrap").hide();
+                      $("#sim-grid-resume-wrap").hide();
+                      $("#runSimGridBtn").text("Aja grid-simulaatio");
+                    }
                     if (st && st.lastSummary) {
                       renderGridValidationWarnings(st.lastSummary);
                     } else {
@@ -5514,7 +6952,8 @@
                           sp.total +
                           " (" +
                           pct.toFixed(1) +
-                          " %)"
+                          " %) | kauppoja " +
+                          (sp.simTrades ?? 0)
                       );
                       $("#sim-grid-status").text(
                         "Grid käynnissä: variantti " +
@@ -5527,7 +6966,11 @@
                           sp.total +
                           " (" +
                           pct.toFixed(1) +
-                          " %)" +
+                          " %) | kauppoja " +
+                          (sp.simTrades ?? 0) +
+                          (Number(sp.simTrades) === 0
+                            ? " — saldo pysyy alussa kunnes 1. entry"
+                            : "") +
                           elapsedText +
                           etaText
                       );
@@ -5616,6 +7059,7 @@
               );
               $sel.val(str);
             })();
+            refreshSimHistorySummary(settings);
             (function () {
               if (!$("#simGridEnabled").length) return;
               $("#simGridEnabled").prop("checked", settings.simGrid && settings.simGrid.enabled === true);
@@ -5634,6 +7078,8 @@
               $.ajax({ url: "/simulate/grid-status", method: "GET", dataType: "json" }).then(function (st) {
                 if (st && st.running) {
                   startAttachedGridPolling();
+                } else {
+                  applyResumableGridUi(st);
                 }
               });
             }

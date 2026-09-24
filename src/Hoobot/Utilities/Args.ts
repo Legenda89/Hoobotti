@@ -1,9 +1,38 @@
-import fs from "fs";
-import path from "path";
+/* =====================================================================
+ * Hoobot - Proprietary License
+ * Copyright (c) 2023 Hoosat Oy. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are not permitted without prior written permission
+ * from Hoosat Oy. Unauthorized reproduction, copying, or use of this
+ * software, in whole or in part, is strictly prohibited. All
+ * modifications in source or binary must be submitted to Hoosat Oy in source format.
+ *
+ * THIS SOFTWARE IS PROVIDED BY HOOSAT OY "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL HOOSAT OY BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * The user of this software uses it at their own risk. Hoosat Oy shall
+ * not be liable for any losses, damages, or liabilities arising from
+ * the use of this software.
+ * ===================================================================== */
+import * as fs from "fs";
+import { dirname, join, resolve, isAbsolute } from "node:path";
 import {
   applyRecommendedAlgorithmicIndicators,
   shouldApplyComplementaryIndicators,
 } from "../Modes/algorithmicIndicators";
+import { roundTripFeePct } from "../Modes/algorithmicAdaptive";
+import { normalizeScoutConfirmTimeframes } from "../Modes/scoutConfirm";
+import { normalizeSimulationSymbolDefaults } from "../Simulation/simModeHelpers";
 import { normalizeAlgorithmicIndicatorParams } from "../Indicators/indicatorParams";
 import { Balances } from "../Exchanges/Balances";
 import { Orderbooks } from "../Exchanges/Orderbook";
@@ -11,6 +40,7 @@ import { TradeHistory } from "../Exchanges/Trades";
 import { Order } from "../Exchanges/Orders";
 import { logToFile } from "./LogToFile";
 import { Exchange } from "../Exchanges/Exchange";
+import { normalizeLiveOrderExecution, type LiveOrderExecutionConfig } from "../Trading/liveOrderExecution";
 
 export interface CurrentProfitMax {
   [symbol: string]: number;
@@ -89,7 +119,7 @@ export interface ExchangeOptions {
   socket: Exchange;
   key: string;
   secret: string;
-  mode: "algorithmic" | "hilow" | "extreme" | "grid" | "consecutive" | "periodic" | "marketmaking";
+  mode: "algorithmic" | "hilow" | "extreme" | "grid" | "consecutive" | "periodic";
   forceStopOnDisconnect: boolean;
   console: string;
   openOrders: OpenOrders;
@@ -104,6 +134,11 @@ export interface ExchangeOptions {
    * Ei sama kuin API:n `recvWindow`. Oletus Hoobotissa 300000 (5 min).
    */
   binanceHttpRequestTimeoutMs?: number;
+  /**
+   * Simulaatio: sessioalku (ms) — agreementEase mittaa odotuksen tästä kun tradeHistory on tyhjä.
+   * Liveissä ei aseteta (ease ei käynnisty "ikuisuudesta").
+   */
+  simulationSessionStartMs?: number;
 }
 
 export interface GridLevel {
@@ -160,20 +195,33 @@ export interface SymbolOptions {
   };
   /** Simulaation kiinteä ostosumma quote-valuutassa. 0/tyhjä = käytä koko käytettävissä olevaa quote-saldoa. */
   simulationBuyAmountQuote?: number;
+  /** Live: limit / aggressiveLimit / market per puoli (Binance). */
+  liveOrderExecution?: LiveOrderExecutionConfig;
   closePercentage?: number;
   maximumAgeOfOrder?: number;
   tradeFeePercentage?: number;
+  /** Live Binance: true/undefined = päivitä tradeFeePercentage tilin BNB-saldon / tradeFee-API:n mukaan. */
+  tradeFeePercentageAuto?: boolean;
   stopLoss?: {
     enabled: boolean;
     stopTrading: boolean;
     pnl: number;
     agingPerHour: number;
     hit: boolean;
+    atrScale?: boolean;
+    atrMultiplier?: number;
+    atrMin?: number;
+    atrMax?: number;
   };
   stopLossBuy?: {
     enabled: boolean;
     pnl: number;
     agingPerHour: number;
+    hit?: boolean;
+    atrScale?: boolean;
+    atrMultiplier?: number;
+    atrMin?: number;
+    atrMax?: number;
   };
   takeProfit?: {
     enabled: boolean;
@@ -191,6 +239,8 @@ export interface SymbolOptions {
     forceAfterCandles?: number;
     forceAfterDrop?: number;
     forceMinProfit?: number;
+    /** Ensimmäinen TAKE_PROFIT sulkee vain osan; loput trailaa. */
+    partialClose?: { enabled?: boolean; fraction?: number };
   };
   /** Erillinen TP vain kun enabled === true ja next === BUY; muuten takeProfit. */
   takeProfitBuy?: {
@@ -207,6 +257,7 @@ export interface SymbolOptions {
     forceAfterCandles?: number;
     forceAfterDrop?: number;
     forceMinProfit?: number;
+    partialClose?: { enabled?: boolean; fraction?: number };
   };
   forcedExit?: {
     enabled?: boolean;
@@ -214,6 +265,8 @@ export interface SymbolOptions {
     change?: number;
     /** Minimum unrealized PNL% required for forced exit. Prevents accidental loss trades. */
     minProfit?: number;
+    /** Hours in position → flatten even if red (capital efficiency; does not wait for stopLoss). */
+    maxHours?: number;
   };
   /** HiLow fixed EUR: myy kun quote-voitto ≥ sellProfitQuote; osta kun hinta on laskenut buyMoveQuote EUR verran. */
   hilowFixed?: {
@@ -221,8 +274,11 @@ export interface SymbolOptions {
     buyMoveQuote?: number;
     stopLossQuote?: number;
   };
-  /** Algorithmic: complementary = suositeltu MACD+RSI+ADX+BB+CMF; custom = älä ylikirjoita loadissa. */
-  indicatorsPreset?: "complementary" | "custom";
+  /**
+   * Algorithmic paradigm: meanReversion | momentum | complementary (legacy mix) | custom.
+   * Load applies enabled/weight for non-custom presets.
+   */
+  indicatorsPreset?: "meanReversion" | "meanReversionVolatile" | "momentum" | "complementary" | "custom";
   /** Algorithmic: ATR-skaalaus, trendi-agreement, konflikti, idle-ease (oletus päällä). */
   algorithmicAdaptive?: {
     enabled?: boolean;
@@ -232,6 +288,7 @@ export interface SymbolOptions {
     trendAgreement?: boolean;
     trendAlignedBonus?: number;
     trendCounterPenalty?: number;
+    blockCounterTrendEntries?: boolean;
     conflictEnabled?: boolean;
     conflictMinShare?: number;
     conflictPenalty?: number;
@@ -239,6 +296,29 @@ export interface SymbolOptions {
     maxLongCandles?: number;
     agreementEaseMax?: number;
     feeAwareMinProfit?: boolean;
+  };
+  /** Algorithmic: scout (1m) + confirm (3m) — entry vain sulkeutuneella scout-kynttilällä. */
+  scoutConfirm?: {
+    enabled?: boolean;
+    scoutTimeframe?: CandlestickInterval;
+    confirmTimeframe?: CandlestickInterval;
+    scoutMinShare?: number;
+    confirmAgreement?: number;
+    scoutIndicators?: ("rsi" | "bb" | "macd")[];
+  };
+  /** Estä sisäänmeno heti tappiokierroksen jälkeen (symbolikohtainen). */
+  blockConsecutiveLoss?: {
+    enabled?: boolean;
+    skipEntries?: number;
+    cooldownMinutes?: number;
+    /** Minuutit ilman uutta entryä STOP_LOSS-sulun jälkeen (whipsaw). Oletus 20. */
+    cooldownAfterStopLossMinutes?: number;
+  };
+  /** Churn-suoja: max kauppaa / päivä + min väli entryjen välillä. */
+  tradeRateLimit?: {
+    enabled?: boolean;
+    maxTradesPerDay?: number;
+    minMinutesBetweenEntries?: number;
   };
   /** Extreme: adaptiivinen EUR-ping-pong (volatiliteetti + trendi). */
   extreme?: {
@@ -277,10 +357,10 @@ export interface SymbolOptions {
       weight?: number;
       plusDI?: {
         length: number;
-      };
+      }
       minusDI?: {
         length: number;
-      };
+      }
     };
     renko?: {
       enabled: boolean;
@@ -376,69 +456,6 @@ export interface SymbolOptions {
       adxSmoothing: number;
       weight?: number;
     };
-    aroon?: {
-      enabled: boolean;
-      length?: number;
-      weight?: number;
-    };
-    cci?: {
-      enabled: boolean;
-      length?: number;
-      thresholds?: {
-        overbought: number;
-        oversold: number;
-      };
-      weight?: number;
-    };
-    chaikin?: {
-      enabled: boolean;
-      fastPeriod?: number;
-      slowPeriod?: number;
-      weight?: number;
-    };
-    forceIndex?: {
-      enabled: boolean;
-      length?: number;
-      weight?: number;
-    };
-    ichimoku?: {
-      enabled: boolean;
-      tenkanPeriod?: number;
-      kijunPeriod?: number;
-      senkouPeriod?: number;
-      displacement?: number;
-      weight?: number;
-    };
-    mfi?: {
-      enabled: boolean;
-      length?: number;
-      thresholds?: {
-        overbought: number;
-        oversold: number;
-      };
-      weight?: number;
-    };
-    parabolicSAR?: {
-      enabled: boolean;
-      accelerationFactor?: number;
-      maxAcceleration?: number;
-      weight?: number;
-    };
-    vwap?: {
-      enabled: boolean;
-      stdDevMultiplier?: number;
-      resetPeriod?: "daily" | "weekly" | "monthly" | "session";
-      weight?: number;
-    };
-    williamsR?: {
-      enabled: boolean;
-      length?: number;
-      thresholds?: {
-        overbought: number;
-        oversold: number;
-      };
-      weight?: number;
-    };
     OpenAI?: {
       enabled: boolean;
       key: string;
@@ -446,29 +463,6 @@ export interface SymbolOptions {
       history: string;
       overwrite: boolean;
     };
-  };
-  /** Market Making mode: two-sided limit order quoting around the mid price. */
-  marketMaking?: {
-    /** Full bid-ask spread as % of mid price (e.g. 0.5 = 0.5 %). Minimum effective value: 0.01 %. */
-    spreadPercent: number;
-    /** Number of price levels on each side, 1–5. Each successive level is offset by levelSpacingPercent. */
-    levels: number;
-    /** Additional price gap between consecutive levels as % of mid price (e.g. 0.1 = 0.1 %). */
-    levelSpacingPercent: number;
-    /** Quote-currency amount allocated per bid level (e.g. 50 = spend 50 USDT per bid order). Omit to use full quote balance divided evenly across levels. */
-    orderSizeQuote?: number;
-    /** Base-currency amount allocated per ask level (e.g. 0.001 = sell 0.001 BTC per ask order). Omit to use full base balance divided evenly across levels. */
-    orderSizeBase?: number;
-    /** Minimum milliseconds between full re-quote cycles (e.g. 5000 = 5 s). */
-    refreshIntervalMs: number;
-    /** Target base-asset value ratio 0–1 (default 0.5 = equal value in base and quote). */
-    inventoryTarget?: number;
-    /** Inventory skew strength 0–1 (default 0.5). 0 = no skew, 1 = maximum skew. */
-    inventorySkewFactor?: number;
-    /** Maximum total quote currency committed to open bids (exposure cap). Omit for no cap. */
-    maxQuoteExposure?: number;
-    /** Maximum total base currency committed to open asks (exposure cap). Omit for no cap. */
-    maxBaseExposure?: number;
   };
 }
 
@@ -563,9 +557,7 @@ export interface ConfigOptions {
 /** Poistettu TP-kentät — eivät enää vaikuta logiikkaan eivätkä säily mergeissä. */
 const LEGACY_TAKE_PROFIT_KEYS = ["dropMinUnrealized"] as const;
 
-export function stripLegacyTakeProfitFields(
-  tp: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined {
+export function stripLegacyTakeProfitFields(tp: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!tp || typeof tp !== "object") return tp;
   const out = { ...tp };
   for (const k of LEGACY_TAKE_PROFIT_KEYS) {
@@ -581,14 +573,25 @@ export function sanitizeOptionsDocument(options: ConfigOptions): ConfigOptions {
     for (const sym of ex.symbols ?? []) {
       if (!sym || typeof sym !== "object") continue;
       if (sym.takeProfit) {
-        sym.takeProfit = stripLegacyTakeProfitFields(
-          sym.takeProfit as Record<string, unknown>,
-        ) as SymbolOptions["takeProfit"];
+        sym.takeProfit = stripLegacyTakeProfitFields(sym.takeProfit as Record<string, unknown>) as SymbolOptions["takeProfit"];
       }
       if (sym.takeProfitBuy) {
         sym.takeProfitBuy = stripLegacyTakeProfitFields(
-          sym.takeProfitBuy as Record<string, unknown>,
+          sym.takeProfitBuy as Record<string, unknown>
         ) as SymbolOptions["takeProfitBuy"];
+      }
+      // Runtime flags must not persist across restarts / disk writes.
+      if (sym.stopLoss && typeof sym.stopLoss === "object") {
+        sym.stopLoss.hit = false;
+      }
+      if (sym.stopLossBuy && typeof sym.stopLossBuy === "object") {
+        delete (sym.stopLossBuy as { hit?: boolean }).hit;
+      }
+      if (sym.takeProfit && typeof sym.takeProfit === "object") {
+        sym.takeProfit.current = 0;
+      }
+      if (sym.takeProfitBuy && typeof sym.takeProfitBuy === "object") {
+        sym.takeProfitBuy.current = 0;
       }
     }
   }
@@ -608,30 +611,37 @@ export const validateOptions = (options: ConfigOptions): ConfigOptions => {
     if (!ex || typeof ex !== "object") continue;
     if (!ex.name) ex.name = "";
     if (!ex.mode) ex.mode = "algorithmic";
-    if (ex.mode === "algorithmic" || ex.mode === "hilow" || ex.mode === "extreme" || ex.mode === "periodic") {
+    if (
+      ex.mode === "algorithmic" ||
+      ex.mode === "hilow" ||
+      ex.mode === "extreme" ||
+      ex.mode === "periodic"
+    ) {
       if (!Array.isArray(ex.symbols)) ex.symbols = [];
       for (let j = 0; j < ex.symbols.length; j++) {
         const sym = ex.symbols[j];
         if (sym && typeof sym === "object" && !sym.name) (sym as SymbolOptions).name = "";
         if (sym?.takeProfit) {
-          sym.takeProfit = stripLegacyTakeProfitFields(
-            sym.takeProfit as Record<string, unknown>,
-          ) as SymbolOptions["takeProfit"];
+          sym.takeProfit = stripLegacyTakeProfitFields(sym.takeProfit as Record<string, unknown>) as SymbolOptions["takeProfit"];
         }
         if (sym?.takeProfitBuy) {
           sym.takeProfitBuy = stripLegacyTakeProfitFields(
-            sym.takeProfitBuy as Record<string, unknown>,
+            sym.takeProfitBuy as Record<string, unknown>
           ) as SymbolOptions["takeProfitBuy"];
         }
         if (sym) {
           normalizeHilowFixedOptions(sym);
           normalizeExtremeOptions(sym);
+          if (options.simulate === true) {
+            normalizeSimulationSymbolDefaults(sym);
+          }
           if (ex.mode === "algorithmic" && shouldApplyComplementaryIndicators(sym)) {
             applyRecommendedAlgorithmicIndicators(sym);
           }
           normalizeBbAverage(sym);
           if (ex.mode === "algorithmic") {
             normalizeAlgorithmicIndicatorParams(sym);
+            normalizeScoutConfirmTimeframes(sym);
           }
         }
         if (sym.takeProfit?.enabled && (sym.takeProfit.drop ?? 0) <= 0) {
@@ -648,6 +658,95 @@ export const validateOptions = (options: ConfigOptions): ConfigOptions => {
         }
         if (sym.agreement != null && (sym.agreement < 0 || sym.agreement > 100)) {
           console.warn(`[Hoobot] ${sym.name}: agreement should be 0–100.`);
+        }
+        if (sym.scoutConfirm?.enabled === true) {
+          const st = sym.scoutConfirm.scoutTimeframe;
+          const ct = sym.scoutConfirm.confirmTimeframe;
+          if (st && ct && st === ct) {
+            console.warn(`[Hoobot] ${sym.name}: scoutConfirm scout and confirm timeframe are identical (${st}).`);
+          }
+          const tfs = sym.timeframes ?? [];
+          if (ct && !tfs.includes(ct)) {
+            console.warn(`[Hoobot] ${sym.name}: confirm timeframe ${ct} missing from timeframes.`);
+          }
+          if (st && !tfs.includes(st)) {
+            console.warn(`[Hoobot] ${sym.name}: scout timeframe ${st} missing from timeframes.`);
+          }
+        }
+        const tpMin = sym.takeProfit?.minimum ?? 0;
+        if (sym.takeProfit?.enabled && tpMin >= 1.5) {
+          console.warn(
+            `[Hoobot] ${sym.name}: takeProfit.minimum=${tpMin}% is high for 3m scalping — expect sparse trades.`
+          );
+        }
+        // Scout + TP min are intentional together around 1%; warn only when both are very strict.
+        if (sym.scoutConfirm?.enabled === true && tpMin > 1.2 && sym.takeProfit?.enabled) {
+          console.warn(
+            `[Hoobot] ${sym.name}: scoutConfirm + takeProfit.minimum=${tpMin}% — overlapping strict filters.`
+          );
+        }
+        if (sym.profit?.enabled === true) {
+          const feeFloor = roundTripFeePct(sym.tradeFeePercentage) + 0.05;
+          if (!sym.profit) sym.profit = { enabled: true, minimumSell: feeFloor, minimumBuy: feeFloor };
+          for (const side of ["minimumSell", "minimumBuy"] as const) {
+            const raw = Number(sym.profit[side] ?? 0);
+            if (!Number.isFinite(raw) || raw < feeFloor) {
+              console.warn(
+                `[Hoobot] ${sym.name}: profit.${side}=${raw} raised to fee floor ${feeFloor.toFixed(3)}% (round-trip fee + 0.05).`
+              );
+              sym.profit[side] = feeFloor;
+            }
+          }
+        }
+        // stopLoss vs stopLossBuy may be intentionally asymmetric (wide long SL, tight short SL).
+        // Do not auto-widen stopLossBuy — warn only.
+        if (sym.stopLossBuy?.enabled && sym.stopLoss?.enabled) {
+          const sl = Math.abs(Number(sym.stopLoss.pnl ?? 0));
+          const slBuy = Math.abs(Number(sym.stopLossBuy.pnl ?? 0));
+          if (sl > 0 && slBuy > 0 && slBuy < sl * 0.6) {
+            console.warn(
+              `[Hoobot] ${sym.name}: stopLossBuy.pnl=${sym.stopLossBuy.pnl} much tighter than stopLoss.pnl=${sym.stopLoss.pnl} (intentional asymmetry OK).`
+            );
+          }
+        }
+        if ((sym.maximumAgeOfOrder ?? 0) <= 0 && ex.mode === "algorithmic") {
+          console.warn(`[Hoobot] ${sym.name}: maximumAgeOfOrder missing — open-order guard may misbehave.`);
+        }
+        // Voting indicators: enabled requires weight > 0 (ATR is volatility-only, not a vote).
+        if (sym.indicators && typeof sym.indicators === "object") {
+          const votingKeys = [
+            "sma",
+            "ema",
+            "adx",
+            "macd",
+            "rsi",
+            "so",
+            "srsi",
+            "bb",
+            "obv",
+            "cmf",
+            "renko",
+            "dmi",
+          ] as const;
+          for (const key of votingKeys) {
+            const ind = sym.indicators[key] as { enabled?: boolean; weight?: number } | undefined;
+            if (!ind || ind.enabled !== true) continue;
+            const w = Number(ind.weight);
+            if (!Number.isFinite(w) || w <= 0) {
+              console.warn(
+                `[Hoobot] ${sym.name}: indicators.${key} enabled but weight=${ind.weight} — disabling (weight must be > 0).`
+              );
+              ind.enabled = false;
+            }
+          }
+        }
+        if (sym.liveOrderExecution) {
+          sym.liveOrderExecution = normalizeLiveOrderExecution(sym.name ?? "", sym.liveOrderExecution);
+          if (options.simulate === true) {
+            console.warn(
+              `[Hoobot] ${sym.name}: liveOrderExecution is ignored in simulation (instant fill at candle price).`
+            );
+          }
         }
       }
     }
@@ -682,17 +781,74 @@ export const maskConfigSecretsForExport = (options: ConfigOptions): ConfigOption
   return out;
 };
 
+/** Baseline/grid-vienti käyttää "***" — ei kelpaa Binancen API-avaimeksi. */
+export const isMaskedExchangeCredential = (value: unknown): boolean =>
+  typeof value !== "string" || value.length === 0 || value === "***";
+
+/** Säilytä live-pörssin oikeat key/secret kun baseline sisältää vain maskatut arvot. */
+export const preserveExchangeCredentialsFromLive = (
+  incomingExchanges: ExchangeOptions[],
+  liveExchanges: ExchangeOptions[]
+): ExchangeOptions[] => {
+  const liveByName = new Map<string, ExchangeOptions>();
+  for (const ex of liveExchanges) {
+    if (ex?.name) liveByName.set(ex.name, ex);
+  }
+  return incomingExchanges.map((inEx) => {
+    const out = JSON.parse(JSON.stringify(inEx)) as ExchangeOptions;
+    const liveEx = inEx.name ? liveByName.get(inEx.name) : undefined;
+    for (const field of ["key", "secret"] as const) {
+      const liveVal = liveEx?.[field];
+      const inVal = out[field];
+      if (typeof liveVal === "string" && liveVal.length > 0 && !isMaskedExchangeCredential(liveVal)) {
+        out[field] = liveVal;
+      } else if (isMaskedExchangeCredential(inVal)) {
+        out[field] = "";
+      }
+    }
+    return out;
+  });
+};
+
+/** Baseline → live: älä korvaa live-symbolin growingMax-arvoja baselin mukaan. */
+export const preserveLiveGrowingMaxOnBaselineExchanges = (
+  incomingExchanges: ExchangeOptions[],
+  liveExchanges: ExchangeOptions[]
+): ExchangeOptions[] => {
+  const liveGrowingMaxByKey = new Map<string, NonNullable<SymbolOptions["growingMax"]>>();
+  for (const ex of liveExchanges) {
+    if (!ex?.name || !Array.isArray(ex.symbols)) continue;
+    for (const sym of ex.symbols) {
+      if (!sym?.name || sym.growingMax === undefined) continue;
+      liveGrowingMaxByKey.set(`${ex.name}\0${sym.name}`, sym.growingMax);
+    }
+  }
+  for (const ex of incomingExchanges) {
+    if (!ex?.name || !Array.isArray(ex.symbols)) continue;
+    for (const sym of ex.symbols) {
+      if (!sym?.name) continue;
+      const liveGm = liveGrowingMaxByKey.get(`${ex.name}\0${sym.name}`);
+      if (liveGm !== undefined) {
+        sym.growingMax = JSON.parse(JSON.stringify(liveGm)) as SymbolOptions["growingMax"];
+      } else {
+        delete sym.growingMax;
+      }
+    }
+  }
+  return incomingExchanges;
+};
+
 export const SETTINGS_LIVE_OPTIONS_BASENAME = "hoobot-options.json";
 
 /** SIMULATE=true -istunnon oma asennustiedosto (ei live-bottia). */
 export const SETTINGS_SIMULATE_OPTIONS_BASENAME = "hoobot-options-simulate.json";
 
 export function getLiveOptionsFilePath(): string {
-  return path.join(findProjectRoot(), "settings", SETTINGS_LIVE_OPTIONS_BASENAME);
+  return join(findProjectRoot(), "settings", SETTINGS_LIVE_OPTIONS_BASENAME);
 }
 
 export function getSimulateOptionsFilePath(): string {
-  return path.join(findProjectRoot(), "settings", SETTINGS_SIMULATE_OPTIONS_BASENAME);
+  return join(findProjectRoot(), "settings", SETTINGS_SIMULATE_OPTIONS_BASENAME);
 }
 
 /**
@@ -700,24 +856,24 @@ export function getSimulateOptionsFilePath(): string {
  * Kävelee process.cwd() ylöspäin (esim. build/ → projektin juuri).
  */
 export function findProjectRoot(): string {
-  let dir = path.resolve(process.cwd());
+  let dir = resolve(process.cwd());
   const seen = new Set<string>();
   for (let i = 0; i < 16; i++) {
     if (seen.has(dir)) break;
     seen.add(dir);
-    const settingsDir = path.join(dir, "settings");
+    const settingsDir = join(dir, "settings");
     if (fs.existsSync(settingsDir)) {
-      const marker = path.join(settingsDir, SETTINGS_LIVE_OPTIONS_BASENAME);
-      const markerSim = path.join(settingsDir, SETTINGS_SIMULATE_OPTIONS_BASENAME);
+      const marker = join(settingsDir, SETTINGS_LIVE_OPTIONS_BASENAME);
+      const markerSim = join(settingsDir, SETTINGS_SIMULATE_OPTIONS_BASENAME);
       if (fs.existsSync(marker) || fs.existsSync(markerSim)) {
         return dir;
       }
     }
-    const parent = path.dirname(dir);
+    const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return path.resolve(process.cwd());
+  return resolve(process.cwd());
 }
 
 /** Suhteellinen polku projektin juureen (tai absoluuttinen sellaisenaan). */
@@ -726,12 +882,12 @@ export function resolveProjectRelativePath(relPath: string): string {
     .trim()
     .replace(/\\/g, "/");
   if (!normalized) {
-    return path.join(findProjectRoot(), "settings", "sim-grid.example.json");
+    return join(findProjectRoot(), "settings", "sim-grid.example.json");
   }
-  if (path.isAbsolute(normalized)) {
+  if (isAbsolute(normalized)) {
     return normalized;
   }
-  return path.resolve(findProjectRoot(), normalized);
+  return resolve(findProjectRoot(), normalized);
 }
 
 const readConfigJsonFile = (filePath: string): Record<string, unknown> | null => {
@@ -762,7 +918,7 @@ const seedSimExchangesFromLive = (liveDoc: Record<string, unknown>): unknown[] =
     const symbols = ex.symbols;
     if (!Array.isArray(symbols)) continue;
     const enabled = symbols.filter(
-      (s) => s != null && typeof s === "object" && (s as { enabled?: boolean }).enabled !== false,
+      (s) => s != null && typeof s === "object" && (s as { enabled?: boolean }).enabled !== false
     );
     if (enabled.length === 0) continue;
     out.push({ ...ex, symbols: [JSON.parse(JSON.stringify(enabled[0]))] });
@@ -781,20 +937,41 @@ export const loadSimulateSettingsDocument = (): Record<string, unknown> => {
   const simDoc = readConfigJsonFile(simPath);
   const liveDoc = readConfigJsonFile(livePath);
 
+  let doc: Record<string, unknown>;
   if (simDoc && configHasExchanges(simDoc)) {
-    return { ...simDoc, simulate: true };
-  }
-  if (simDoc && liveDoc && configHasExchanges(liveDoc)) {
-    return {
+    doc = { ...simDoc, simulate: true };
+  } else if (simDoc && liveDoc && configHasExchanges(liveDoc)) {
+    doc = {
       ...liveDoc,
       ...simDoc,
       exchanges: seedSimExchangesFromLive(liveDoc),
       simulate: true,
     };
+  } else if (simDoc) {
+    doc = { ...simDoc, simulate: true };
+  } else if (liveDoc) {
+    doc = { ...liveDoc, simulate: true };
+  } else {
+    return { simulate: true, exchanges: [] };
   }
-  if (simDoc) return { ...simDoc, simulate: true };
-  if (liveDoc) return { ...liveDoc, simulate: true };
-  return { simulate: true, exchanges: [] };
+
+  if (liveDoc && configHasExchanges(doc) && configHasExchanges(liveDoc)) {
+    const simExchanges = doc.exchanges as ExchangeOptions[];
+    const liveExchanges = liveDoc.exchanges as ExchangeOptions[];
+    doc.exchanges = preserveExchangeCredentialsFromLive(simExchanges, liveExchanges);
+  }
+  return doc;
+};
+
+/** Älä tallenna API-avaimia simulate-tiedostoon (ladataan tarvittaessa livestä). */
+export const stripExchangeCredentialsForSimulatePersist = (options: ConfigOptions): ConfigOptions => {
+  const out = JSON.parse(JSON.stringify(options)) as ConfigOptions;
+  for (const ex of out.exchanges ?? []) {
+    if (!ex || typeof ex !== "object") continue;
+    ex.key = "";
+    ex.secret = "";
+  }
+  return out;
 };
 
 /**

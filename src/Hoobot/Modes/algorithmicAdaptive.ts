@@ -1,3 +1,8 @@
+/* =====================================================================
+ * Hoobot - Proprietary License
+ * Copyright (c) 2023 Hoosat Oy. All rights reserved.
+ * ===================================================================== */
+
 /**
  * Algorithmic-adaptive: ATR/vol-skaalaus, trendi-agreement, konfliktisuodatus, idle-ease.
  * Oletus päällä (enabled !== false). Pois: algorithmicAdaptive.enabled = false.
@@ -19,6 +24,11 @@ export type AlgorithmicAdaptiveConfig = {
   trendAgreement?: boolean;
   trendAlignedBonus?: number;
   trendCounterPenalty?: number;
+  /**
+   * Estä algorithmic entry (BUY/SELL/SKIP) kun 4h-trend on vastakkainen.
+   * Oletus: true kun adaptive enabled. TP/SL-sulkuja ei estetä.
+   */
+  blockCounterTrendEntries?: boolean;
   /** BUY+SELL äänet molemmat korkeat → HOLD (ellei TP/SL). */
   conflictEnabled?: boolean;
   conflictMinShare?: number;
@@ -46,6 +56,7 @@ export const defaultAlgorithmicAdaptiveConfig = (): Required<
     | "trendAgreement"
     | "trendAlignedBonus"
     | "trendCounterPenalty"
+    | "blockCounterTrendEntries"
     | "conflictEnabled"
     | "conflictMinShare"
     | "conflictPenalty"
@@ -61,6 +72,7 @@ export const defaultAlgorithmicAdaptiveConfig = (): Required<
   trendAgreement: true,
   trendAlignedBonus: 6,
   trendCounterPenalty: 10,
+  blockCounterTrendEntries: true,
   conflictEnabled: true,
   conflictMinShare: 38,
   conflictPenalty: 12,
@@ -70,9 +82,7 @@ export const defaultAlgorithmicAdaptiveConfig = (): Required<
   feeAwareMinProfit: true,
 });
 
-export const resolveAlgorithmicAdaptiveConfig = (
-  symbolOptions: SymbolOptions,
-): AlgorithmicAdaptiveConfig & {
+export const resolveAlgorithmicAdaptiveConfig = (symbolOptions: SymbolOptions): AlgorithmicAdaptiveConfig & {
   enabled: boolean;
 } => {
   const raw = symbolOptions.algorithmicAdaptive;
@@ -96,6 +106,7 @@ export const resolveAlgorithmicAdaptiveConfig = (
     trendAgreement: raw?.trendAgreement !== false,
     trendAlignedBonus: Number.isFinite(aligned) ? aligned : def.trendAlignedBonus,
     trendCounterPenalty: Number.isFinite(counter) ? counter : def.trendCounterPenalty,
+    blockCounterTrendEntries: raw?.blockCounterTrendEntries !== false,
     conflictEnabled: raw?.conflictEnabled !== false,
     conflictMinShare: Number.isFinite(conflictMin) && conflictMin > 0 ? conflictMin : def.conflictMinShare,
     conflictPenalty: Number.isFinite(conflictPen) && conflictPen >= 0 ? conflictPen : def.conflictPenalty,
@@ -110,7 +121,7 @@ export const resolveAlgorithmicAdaptiveConfig = (
 export const atrVolatilityMultiplier = (
   atrSeries: number[] | undefined,
   closePrice: number,
-  lookback: number,
+  lookback: number
 ): number => {
   if (!atrSeries?.length || !(closePrice > 0)) return 1;
   const tail = atrSeries.slice(-Math.min(lookback, atrSeries.length));
@@ -127,7 +138,7 @@ export const resolveVolatilityMultiplier = (
   series: Candlestick[],
   atrSeries: number[] | undefined,
   closePrice: number,
-  cfg: AlgorithmicAdaptiveConfig & { enabled: boolean },
+  cfg: AlgorithmicAdaptiveConfig & { enabled: boolean }
 ): number => {
   if (!cfg.enabled || cfg.volatilityScale === false) return 1;
   const lookback = cfg.atrLookback ?? 48;
@@ -142,13 +153,17 @@ export const roundTripFeePct = (tradeFeePercentage?: number): number => (tradeFe
 export const withAdaptiveProfitScaling = (
   symbolOptions: SymbolOptions,
   volMult: number,
-  cfg: AlgorithmicAdaptiveConfig & { enabled: boolean },
+  cfg: AlgorithmicAdaptiveConfig & { enabled: boolean }
 ): SymbolOptions => {
-  if (!cfg.enabled || (volMult === 1 && cfg.feeAwareMinProfit === false)) {
+  if (!cfg.enabled || volMult === 1 && cfg.feeAwareMinProfit === false) {
     return symbolOptions;
   }
   const floor = cfg.feeAwareMinProfit !== false ? roundTripFeePct(symbolOptions.tradeFeePercentage) + 0.05 : 0;
-  const scale = (v: number) => (v > 0 ? Math.max(floor, v * volMult) : v);
+  const scale = (v: number) => {
+    const n = Number.isFinite(v) ? v : 0;
+    if (n <= 0) return floor > 0 ? floor : n;
+    return Math.max(floor, n * volMult);
+  };
 
   const profit = symbolOptions.profit ? { ...symbolOptions.profit } : undefined;
   if (profit) {
@@ -189,10 +204,17 @@ export const agreementVolatilityDelta = (volMult: number): number => {
   return Math.round((volMult - 1) * 24);
 };
 
+/** TP/SL/time-stop — ohittaa scout/agreement; sulku menee läpi. */
+export const isProfitDirectionOverride = (profit: string): boolean =>
+  profit === "TAKE_PROFIT" ||
+  profit === "TAKE_PROFIT_FORCE" ||
+  profit === "STOP_LOSS" ||
+  profit === "STALE_EXIT";
+
 export const trendAgreementDelta = (
   next: string,
   trend: string,
-  cfg: AlgorithmicAdaptiveConfig & { enabled: boolean },
+  cfg: AlgorithmicAdaptiveConfig & { enabled: boolean }
 ): number => {
   if (!cfg.enabled || cfg.trendAgreement === false) return 0;
   const bonus = cfg.trendAlignedBonus ?? 6;
@@ -207,6 +229,26 @@ export const trendAgreementDelta = (
   return 0;
 };
 
+/**
+ * Hard-block algorithmic *entries* against the higher-TF trend.
+ * Only when profit === "SKIP" (uusi positio). Ei estä profit=BUY/SELL -uloskäyntejä
+ * eikä STOP_LOSS / TAKE_PROFIT(_FORCE).
+ */
+export const shouldBlockCounterTrendEntry = (
+  direction: string,
+  profit: string,
+  trend: string,
+  cfg: AlgorithmicAdaptiveConfig & { enabled: boolean }
+): boolean => {
+  if (!cfg.enabled || cfg.blockCounterTrendEntries === false) return false;
+  if (isProfitDirectionOverride(profit)) return false;
+  // Vain puhtaat entryt — mean-reversion tarvitsee SELL/BUY-uloskäynnit myös vastatrendiin.
+  if (profit !== "SKIP") return false;
+  if (direction === "BUY" && trend === "SHORT") return true;
+  if (direction === "SELL" && trend === "LONG") return true;
+  return false;
+};
+
 export const detectVoteConflict = (directions: DirectionsVote, minSharePct: number): boolean => {
   const buy = directions.BUY ?? 0;
   const sell = directions.SELL ?? 0;
@@ -216,17 +258,29 @@ export const detectVoteConflict = (directions: DirectionsVote, minSharePct: numb
 export const candlesSinceLastTrade = (
   symbolOptions: SymbolOptions,
   closeTime: number,
-  exchangeOptions: ExchangeOptions,
+  exchangeOptions: ExchangeOptions
 ): number => {
   const symbolKey = toSymbolKey(symbolOptions.name);
   const th = exchangeOptions.tradeHistory?.[symbolKey];
-  if (!th?.length) return 0;
-  const lastTrade = th[th.length - 1];
   const primaryInterval = symbolOptions.timeframes?.[0];
   if (!primaryInterval) return 0;
   const intervalSeconds = getSecondsFromInterval(primaryInterval);
   if (intervalSeconds <= 0) return 0;
-  const elapsedSeconds = (closeTime - lastTrade.time) / 1000;
+
+  let refTime: number | undefined;
+  if (th?.length) {
+    refTime = th[th.length - 1]?.time;
+  } else {
+    // Ensimmäinen entry: ilman tätä ease ei koskaan käynnisty (odotti aina 0).
+    const sessionStart = Number(exchangeOptions.simulationSessionStartMs);
+    if (Number.isFinite(sessionStart) && sessionStart > 0) {
+      refTime = sessionStart;
+    } else {
+      return 0;
+    }
+  }
+  if (refTime == null || !Number.isFinite(refTime)) return 0;
+  const elapsedSeconds = (closeTime - refTime) / 1000;
   return Math.max(0, Math.floor(elapsedSeconds / intervalSeconds));
 };
 
@@ -234,7 +288,7 @@ export const candlesSinceLastTrade = (
 export const agreementEaseFromWait = (
   waited: number,
   next: string,
-  cfg: AlgorithmicAdaptiveConfig & { enabled: boolean },
+  cfg: AlgorithmicAdaptiveConfig & { enabled: boolean }
 ): number => {
   if (!cfg.enabled || waited <= 0) return 0;
   const escapeAt = next === "BUY" ? (cfg.maxCashCandles ?? 288) : (cfg.maxLongCandles ?? 192);
@@ -281,6 +335,3 @@ export const resolveEffectiveAgreement = (opts: {
   effective = clamp(50, 98, effective);
   return { effective, conflict, volMult, ease, trendDelta, volDelta };
 };
-
-export const isProfitDirectionOverride = (profit: string): boolean =>
-  profit === "TAKE_PROFIT" || profit === "TAKE_PROFIT_FORCE" || profit === "STOP_LOSS";

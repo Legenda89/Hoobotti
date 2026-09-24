@@ -1,0 +1,92 @@
+{
+  "simulationHistoryYears": 1,
+  "includeBaseline": true,
+  "maxVariants": 500,
+  "axes": [
+    {
+      "name": "takeProfit.limit",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [{ "takeProfit": { "enabled": true, "limit": 0.05 } }]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [{ "takeProfit": { "enabled": true, "limit": 0.1 } }]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [{ "takeProfit": { "enabled": true, "limit": 0.2 } }]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [{ "takeProfit": { "enabled": true, "limit": 0.3 } }]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [{ "takeProfit": { "enabled": true, "limit": 0.4 } }]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [{ "takeProfit": { "enabled": true, "limit": 0.5 } }]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "takeProfit.minimum",
+      "range": { "from": 0.1, "to": 1.0, "step": 0.1 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "minimum": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "stopLoss.pnl",
+      "range": { "from": -5, "to": -1, "step": 1 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "stopLoss": { "enabled": true, "stopTrading": false, "pnl": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

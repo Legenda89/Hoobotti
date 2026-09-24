@@ -1,26 +1,54 @@
-import OpenAI from "openai";
-import { Candlesticks } from "../Exchanges/Candlesticks";
-import { ConsoleLogger } from "../Utilities/ConsoleLogger";
-import { Indicators } from "../Modes/Algorithmic";
-import { ConfigOptions, SymbolOptions, toSymbolKey } from "../Utilities/Args";
+/* =====================================================================
+* Hoobot - Proprietary License
+* Copyright (c) 2023 Hoosat Oy. All rights reserved.
+*
+* Redistribution and use in source and binary forms, with or without
+* modification, are not permitted without prior written permission
+* from Hoosat Oy. Unauthorized reproduction, copying, or use of this
+* software, in whole or in part, is strictly prohibited. All 
+* modifications in source or binary must be submitted to Hoosat Oy in source format.
+*
+* THIS SOFTWARE IS PROVIDED BY HOOSAT OY "AS IS" AND ANY EXPRESS OR
+* IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+* ARE DISCLAIMED. IN NO EVENT SHALL HOOSAT OY BE LIABLE FOR ANY DIRECT,
+* INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+* SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+* HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+* STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+* ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+* OF THE POSSIBILITY OF SUCH DAMAGE.
+*
+* The user of this software uses it at their own risk. Hoosat Oy shall
+* not be liable for any losses, damages, or liabilities arising from
+* the use of this software.
+* ===================================================================== */
+import OpenAI from 'openai';
+import { Candlesticks } from '../Exchanges/Candlesticks';
+import { ConsoleLogger } from '../Utilities/ConsoleLogger';
+import { Indicators } from '../Modes/Algorithmic';
+import { ConfigOptions, SymbolOptions, toSymbolKey } from '../Utilities/Args';
 
 export const checkGPTSignals = async (
-  consoleLogger: ConsoleLogger,
+  consoleLogger: ConsoleLogger, 
   symbol: string,
-  candlesticks: Candlesticks,
-  indicators: Indicators,
-  symbolOptions: SymbolOptions,
+  candlesticks: Candlesticks, 
+  indicators: Indicators, 
+  symbolOptions: SymbolOptions
 ) => {
   symbol = toSymbolKey(symbol);
   let check = "SKIP";
   if (symbolOptions.indicators !== undefined) {
     if (symbolOptions.indicators.OpenAI !== undefined && symbolOptions.indicators.OpenAI?.enabled) {
-      check = "HOLD";
-      const slice = symbolOptions.indicators.OpenAI.history;
-      let message =
-        "I give you this trade data, I want you to decide from them if I should BUY, SELL or HOLD.  Data in arrays are oldest to newest order. Please reply only with one word HOLD, BUY or SELL!\n\n";
+      check = 'HOLD';
+      const slice = symbolOptions.indicators.OpenAI.history; 
+      let message = "I give you this trade data, I want you to decide from them if I should BUY, SELL or HOLD.  Data in arrays are oldest to newest order. Please reply only with one word HOLD, BUY or SELL!\n\n";
       message += `Traded symbol is: ${symbol}\n`;
-      const timeframes = Object.keys(indicators[symbol]);
+      const timeframes =
+        symbolOptions.timeframes?.length > 0
+          ? symbolOptions.timeframes
+          : Object.keys(candlesticks[symbol] ?? {});
       message += `Candle timeframes: ${JSON.stringify(timeframes, null, 2)}\n`;
       for (let i = 0; i < timeframes.length; i++) {
         const latestCandles = candlesticks[symbol][timeframes[i]].slice(-slice);
@@ -71,18 +99,18 @@ export const checkGPTSignals = async (
         }
       }
       const openai = new OpenAI({
-        apiKey: symbolOptions.indicators.OpenAI.key,
+        apiKey: symbolOptions.indicators.OpenAI.key, 
       });
       const chatCompletion = await openai.chat.completions.create({
-        messages: [{ role: "user", content: message }],
+        messages: [{ role: 'user', content: message }],
         model: symbolOptions.indicators.OpenAI.model,
       });
       for (let i = 0; i < chatCompletion.choices.length; i++) {
-        if (chatCompletion.choices[i].message.role === "assistant") {
-          if (chatCompletion.choices[i].finish_reason === "stop") {
+        if(chatCompletion.choices[i].message.role === "assistant") {
+          if(chatCompletion.choices[i].finish_reason === "stop") {
             const content = chatCompletion.choices[i].message.content;
             if (content === "HOLD" || content === "SELL" || content === "BUY") {
-              check = content;
+              check = content
               break;
             }
           }
@@ -92,4 +120,5 @@ export const checkGPTSignals = async (
     }
   }
   return check;
-};
+}
+

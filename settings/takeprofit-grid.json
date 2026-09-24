@@ -1,0 +1,106 @@
+{
+  "simulationHistoryYears": 1,
+  "includeBaseline": true,
+  "maxVariants": 32,
+  "axes": [
+    {
+      "name": "tp-minimum-2-5",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "takeProfit": { "enabled": true, "minimum": 2 }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "takeProfit": { "enabled": true, "minimum": 5 }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "profit-minimumSell-2-5",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "profit": { "enabled": true, "minimumSell": 2 }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "profit": { "enabled": true, "minimumSell": 5 }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "profit-minimumBuy--5-0-2",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "profit": { "enabled": true, "minimumBuy": -5 }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "profit": { "enabled": true, "minimumBuy": 0 }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "profit": { "enabled": true, "minimumBuy": 2 }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

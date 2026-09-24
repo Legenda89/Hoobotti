@@ -1,3 +1,30 @@
+/* =====================================================================
+ * Hoobot - Proprietary License
+ * Copyright (c) 2023 Hoosat Oy. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are not permitted without prior written permission
+ * from Hoosat Oy. Unauthorized reproduction, copying, or use of this
+ * software, in whole or in part, is strictly prohibited. All
+ * modifications in source or binary must be submitted to Hoosat Oy in source format.
+ *
+ * THIS SOFTWARE IS PROVIDED BY HOOSAT OY "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL HOOSAT OY BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * The user of this software uses it at their own risk. Hoosat Oy shall
+ * not be liable for any losses, damages, or liabilities arising from
+ * the use of this software.
+ * ===================================================================== */
+
 import fs from "fs";
 import Binance from "node-binance-api";
 import { loginDiscord } from "./Discord/discord";
@@ -17,10 +44,14 @@ import {
   resolveProjectRelativePath,
   findProjectRoot,
   maskConfigSecretsForExport,
+  preserveExchangeCredentialsFromLive,
+  stripExchangeCredentialsForSimulatePersist,
+  preserveLiveGrowingMaxOnBaselineExchanges,
+  isMaskedExchangeCredential,
   type ConfigOptions,
   type SymbolOptions,
 } from "./Hoobot/Utilities/Args";
-import { createBinanceBalanceDataErrorLogBridge, getCurrentBalances, storeBalances } from "./Hoobot/Exchanges/Balances";
+import { createBinanceBalanceDataErrorLogBridge, assignCurrentBalances, storeBalances } from "./Hoobot/Exchanges/Balances";
 import { consoleLogger } from "./Hoobot/Utilities/ConsoleLogger";
 import { getFilters } from "./Hoobot/Exchanges/Filters";
 import dotenv from "dotenv";
@@ -28,13 +59,10 @@ import { algorithmic } from "./Hoobot/Modes/Algorithmic";
 import { seedTakeProfitRuntimeForAllSymbols, syncTakeProfitRuntimeFromConfig } from "./Hoobot/Indicators/Profit";
 import { getTakeProfitRuntimeState } from "./Hoobot/Indicators/takeProfitPositionState";
 import { checkLicenseValidity } from "./Hoobot/Utilities/License";
+import { isTransientNetworkError } from "./Hoobot/Utilities/networkErrors";
 import { Orderbook, getOrderbook, listenForOrderbooks } from "./Hoobot/Exchanges/Orderbook";
-import {
-  getTradeHistory,
-  Trade,
-  calculatePNLPercentageForLong,
-  calculatePNLPercentageForShort,
-} from "./Hoobot/Exchanges/Trades";
+import { getTradeHistory, Trade, calculatePNLPercentageForLong, calculatePNLPercentageForShort } from "./Hoobot/Exchanges/Trades";
+import { roundTripPnlAfterFees } from "./Hoobot/Trading/tradeGates";
 import { hilow } from "./Hoobot/Modes/HiLow";
 import { extreme } from "./Hoobot/Modes/Extreme";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
@@ -43,10 +71,16 @@ import { Exchange } from "./Hoobot/Exchanges/Exchange";
 import { logToFile } from "./Hoobot/Utilities/LogToFile";
 import { NonKYC } from "./Hoobot/Exchanges/NonKYC/NonKYC";
 import { Mexc } from "./Hoobot/Exchanges/Mexc/Mexc";
-import { DexTrade } from "./Hoobot/Exchanges/DexTrade/DexTrade";
 import { gridTrading } from "./Hoobot/Modes/Grid";
 import { periodic } from "./Hoobot/Modes/Periodic";
-import { marketMaking } from "./Hoobot/Modes/MarketMaking";
+import { getOpenOrders } from "./Hoobot/Exchanges/Orders";
+import { getConsecutiveLossStatus, initConsecutiveLossGuard, lastCompletedRoundTripPnlPct } from "./Hoobot/Trading/consecutiveLossGuard";
+import { registerDashboardRoutes } from "./api/dashboardRoutes";
+import { registerHealthRoutes } from "./api/healthRoutes";
+import { registerSettingsAdminRoutes } from "./api/settingsRoutes";
+import { acquireLiveProcessLock } from "./Hoobot/Utilities/liveProcessLock";
+import { getTargetTimestamp } from "./api/dashboardHelpers";
+import { hasOpenPositionFromTradeHistory } from "./Hoobot/Trading/positionState";
 import { fileURLToPath } from "url";
 import express from "express";
 import { createHash } from "crypto";
@@ -68,11 +102,14 @@ import {
   deepMergeConfig,
   executeSimGrid,
   estimateGridVariantCount,
+  recoverGridProgressFromBackup,
   validateGridPayload,
   type GridRunSummary,
   type GridRuntimeProgress,
 } from "./Hoobot/Simulation/runSimGridCore";
-import { flattenLeafValues } from "./Hoobot/Simulation/gridVariantCache";
+import { installSimulationShutdownHandlers } from "./Hoobot/Simulation/simulationPersistence";
+import { applySimulateProcessNice } from "./Hoobot/Utilities/simulateProcessGuard";
+import { flattenLeafValues, extractSymbolPatchFromGridVariant, resolveSummaryApplyVariant } from "./Hoobot/Simulation/gridVariantCache";
 
 export { symbolFilters, runSimulationWithConfig, loadSimulationPreload };
 export type { SimulationApiResult, SimulationProgress };
@@ -85,22 +122,22 @@ dotenv.config();
 var options = process.env.SIMULATE === "true" ? parseArgsSimulate() : parseArgs();
 
 const runExchange = async (exchange: Exchange, discord: any, exchangeOptions: ExchangeOptions) => {
-  exchangeOptions.balances = await getCurrentBalances(exchange);
+  exchangeOptions.balances = await assignCurrentBalances(exchange, exchangeOptions);
   storeBalances(exchange, exchangeOptions.balances);
-  if (exchangeOptions.orderbooks === undefined) {
-    exchangeOptions.orderbooks = {};
-  }
   const candlesticksToPreload = 1000;
   const symbolCandlesticks: Candlesticks = {};
   if (exchangeOptions.mode === "algorithmic") {
-    console.log(`Start running exchange ${exchangeOptions.name} on algorithmic mode.`);
+    logger.info(`Start running exchange ${exchangeOptions.name} on algorithmic mode.`);
     if (Array.isArray(exchangeOptions.symbols)) {
       if (exchangeOptions.orderbooks === undefined) {
         exchangeOptions.orderbooks = {};
       }
       for (const symbolOptions of exchangeOptions.symbols) {
         if (symbolOptions.enabled === false) continue;
-        exchangeOptions.orderbooks[toSymbolKey(symbolOptions.name)] = await getOrderbook(exchange, symbolOptions.name);
+        exchangeOptions.orderbooks[toSymbolKey(symbolOptions.name)] = await getOrderbook(
+          exchange,
+          symbolOptions.name
+        );
         symbolFilters[toSymbolKey(symbolOptions.name)] = await getFilters(exchange, symbolOptions.name);
 
         const symbolKey = toSymbolKey(symbolOptions.name);
@@ -113,7 +150,9 @@ const runExchange = async (exchange: Exchange, discord: any, exchangeOptions: Ex
           const last: Trade = trades[trades.length - 1];
           const timeStr = new Date(last.time).toLocaleString("fi-FI");
           const side = last.isBuyer ? "BUY" : "SELL";
-          console.log(`[${symbolOptions.name}] Viimeisin kauppa: ${side} ${last.qty} @ ${last.price} (${timeStr})`);
+          console.log(
+            `[${symbolOptions.name}] Viimeisin kauppa: ${side} ${last.qty} @ ${last.price} (${timeStr})`
+          );
         }
 
         listenForOrderbooks(exchange, symbolOptions.name, (symbol: string, orderbook: Orderbook) => {
@@ -149,16 +188,13 @@ const runExchange = async (exchange: Exchange, discord: any, exchangeOptions: Ex
                 candlesticks,
                 options,
                 exchangeOptions,
-                symbolOptions,
+                symbolOptions
               );
             } catch (err) {
-              logToFile(
-                "./logs/error.log",
-                JSON.stringify({ context: "algorithmic", symbol: symbolOptions.name, err }, null, 4),
-              );
+              logToFile("./logs/error.log", JSON.stringify({ context: "algorithmic", symbol: symbolOptions.name, err }, null, 4));
               console.error(`algorithmic ${symbolOptions.name}:`, err);
             }
-          },
+          }
         );
       }
     }
@@ -166,7 +202,10 @@ const runExchange = async (exchange: Exchange, discord: any, exchangeOptions: Ex
     console.log(`Start running exchange  ${exchangeOptions.name} on hilow mode.`);
     for (const symbolOptions of exchangeOptions.symbols) {
       if (symbolOptions.enabled === false) continue;
-      exchangeOptions.orderbooks[toSymbolKey(symbolOptions.name)] = await getOrderbook(exchange, symbolOptions.name);
+      exchangeOptions.orderbooks[toSymbolKey(symbolOptions.name)] = await getOrderbook(
+        exchange,
+        symbolOptions.name
+      );
       symbolFilters[toSymbolKey(symbolOptions.name)] = await getFilters(exchange, symbolOptions.name);
       listenForOrderbooks(exchange, symbolOptions.name, (_symbol: string, orderbook: Orderbook) => {
         if (exchangeOptions.orderbooks === undefined) {
@@ -190,7 +229,10 @@ const runExchange = async (exchange: Exchange, discord: any, exchangeOptions: Ex
     console.log(`Start running exchange  ${exchangeOptions.name} on extreme mode.`);
     for (const symbolOptions of exchangeOptions.symbols) {
       if (symbolOptions.enabled === false) continue;
-      exchangeOptions.orderbooks[toSymbolKey(symbolOptions.name)] = await getOrderbook(exchange, symbolOptions.name);
+      exchangeOptions.orderbooks[toSymbolKey(symbolOptions.name)] = await getOrderbook(
+        exchange,
+        symbolOptions.name
+      );
       symbolFilters[toSymbolKey(symbolOptions.name)] = await getFilters(exchange, symbolOptions.name);
       listenForOrderbooks(exchange, symbolOptions.name, (_symbol: string, orderbook: Orderbook) => {
         if (exchangeOptions.orderbooks === undefined) {
@@ -214,7 +256,10 @@ const runExchange = async (exchange: Exchange, discord: any, exchangeOptions: Ex
     console.log(`Start running exchange  ${exchangeOptions.name} on periodic mode.`);
     for (const symbolOptions of exchangeOptions.symbols) {
       if (symbolOptions.enabled === false) continue;
-      exchangeOptions.orderbooks[toSymbolKey(symbolOptions.name)] = await getOrderbook(exchange, symbolOptions.name);
+      exchangeOptions.orderbooks[toSymbolKey(symbolOptions.name)] = await getOrderbook(
+        exchange,
+        symbolOptions.name
+      );
       symbolFilters[toSymbolKey(symbolOptions.name)] = await getFilters(exchange, symbolOptions.name);
       listenForOrderbooks(exchange, symbolOptions.name, (_symbol: string, orderbook: Orderbook) => {
         if (exchangeOptions.orderbooks === undefined) {
@@ -239,7 +284,10 @@ const runExchange = async (exchange: Exchange, discord: any, exchangeOptions: Ex
     if (Array.isArray(exchangeOptions.symbols)) {
       for (const symbolOptions of exchangeOptions.symbols) {
         if (symbolOptions.enabled === false) continue;
-        exchangeOptions.orderbooks[toSymbolKey(symbolOptions.name)] = await getOrderbook(exchange, symbolOptions.name);
+        exchangeOptions.orderbooks[toSymbolKey(symbolOptions.name)] = await getOrderbook(
+          exchange,
+          symbolOptions.name
+        );
         symbolFilters[toSymbolKey(symbolOptions.name)] = await getFilters(exchange, symbolOptions.name);
         listenForOrderbooks(exchange, symbolOptions.name, (symbol: string, orderbook: Orderbook) => {
           if (exchangeOptions.orderbooks === undefined) {
@@ -283,63 +331,10 @@ const runExchange = async (exchange: Exchange, discord: any, exchangeOptions: Ex
               candlesticks,
               options,
               exchangeOptions,
-              symbolOptions,
+              symbolOptions
             );
-          },
+          }
         );
-      }
-    }
-  } else if (exchangeOptions.mode === "marketmaking") {
-    console.log(`Start running exchange ${exchangeOptions.name} on market making mode.`);
-    if (Array.isArray(exchangeOptions.symbols)) {
-      for (const symbolOptions of exchangeOptions.symbols) {
-        if (symbolOptions.enabled === false) continue;
-        exchangeOptions.orderbooks[toSymbolKey(symbolOptions.name)] = await getOrderbook(exchange, symbolOptions.name);
-        symbolFilters[toSymbolKey(symbolOptions.name)] = await getFilters(exchange, symbolOptions.name);
-        // Initial run — place orders immediately on startup without waiting for the first orderbook event.
-        try {
-          await marketMaking(
-            discord,
-            exchange,
-            consoleLogger(),
-            symbolOptions.name,
-            exchangeOptions.orderbooks[toSymbolKey(symbolOptions.name)],
-            options,
-            exchangeOptions,
-            symbolOptions,
-          );
-        } catch (err) {
-          logToFile(
-            "./logs/error.log",
-            JSON.stringify({ context: "marketmaking-init", symbol: symbolOptions.name, err }, null, 4),
-          );
-          console.error(`marketmaking init ${symbolOptions.name}:`, err);
-        }
-        listenForOrderbooks(exchange, symbolOptions.name, async (_symbol: string, orderbook: Orderbook) => {
-          if (exchangeOptions.orderbooks === undefined) {
-            exchangeOptions.orderbooks = {};
-          }
-          exchangeOptions.orderbooks[toSymbolKey(symbolOptions.name)] = orderbook;
-          const logger = consoleLogger();
-          try {
-            await marketMaking(
-              discord,
-              exchange,
-              logger,
-              symbolOptions.name,
-              orderbook,
-              options,
-              exchangeOptions,
-              symbolOptions,
-            );
-          } catch (err) {
-            logToFile(
-              "./logs/error.log",
-              JSON.stringify({ context: "marketmaking", symbol: symbolOptions.name, err }, null, 4),
-            );
-            console.error(`marketmaking ${symbolOptions.name}:`, err);
-          }
-        });
       }
     }
   }
@@ -348,10 +343,14 @@ const runExchange = async (exchange: Exchange, discord: any, exchangeOptions: Ex
 /** Binance REST HTTP-timeout (ms); erillinen recvWindow:sta. Nosta jos ESOCKETTIMEDOUT jatkuu hitaalla verkolla. */
 const DEFAULT_BINANCE_HTTP_REQUEST_TIMEOUT_MS = 300000;
 
-const startBinance = async (exchangeOptions: ExchangeOptions, opts?: { silent?: boolean }): Promise<Exchange> => {
+const startBinance = async (
+  exchangeOptions: ExchangeOptions,
+  opts?: { silent?: boolean }
+): Promise<Exchange> => {
   const exchange = new Binance();
   const httpMs =
-    typeof exchangeOptions.binanceHttpRequestTimeoutMs === "number" && exchangeOptions.binanceHttpRequestTimeoutMs > 0
+    typeof exchangeOptions.binanceHttpRequestTimeoutMs === "number" &&
+    exchangeOptions.binanceHttpRequestTimeoutMs > 0
       ? exchangeOptions.binanceHttpRequestTimeoutMs
       : DEFAULT_BINANCE_HTTP_REQUEST_TIMEOUT_MS;
   exchange.options({
@@ -379,7 +378,10 @@ const startBinance = async (exchangeOptions: ExchangeOptions, opts?: { silent?: 
   return exchange;
 };
 
-const startNonKYC = async (exchangeOptions: ExchangeOptions, opts?: { silent?: boolean }): Promise<Exchange> => {
+const startNonKYC = async (
+  exchangeOptions: ExchangeOptions,
+  opts?: { silent?: boolean }
+): Promise<Exchange> => {
   if (exchangeOptions.forceStopOnDisconnect === undefined) {
     exchangeOptions.forceStopOnDisconnect = false;
   }
@@ -391,7 +393,10 @@ const startNonKYC = async (exchangeOptions: ExchangeOptions, opts?: { silent?: b
   return exchange;
 };
 
-const startMexc = async (exchangeOptions: ExchangeOptions, opts?: { silent?: boolean }): Promise<Exchange> => {
+const startMexc = async (
+  exchangeOptions: ExchangeOptions,
+  opts?: { silent?: boolean }
+): Promise<Exchange> => {
   if (exchangeOptions.forceStopOnDisconnect === undefined) {
     exchangeOptions.forceStopOnDisconnect = false;
   }
@@ -399,15 +404,6 @@ const startMexc = async (exchangeOptions: ExchangeOptions, opts?: { silent?: boo
   await exchange.waitConnect();
   if (!opts?.silent) {
     console.log("Started Mexc");
-  }
-  return exchange;
-};
-
-const startDexTrade = async (exchangeOptions: ExchangeOptions, opts?: { silent?: boolean }): Promise<Exchange> => {
-  const exchange = new DexTrade(exchangeOptions.key, exchangeOptions.secret);
-  await exchange.waitConnect();
-  if (!opts?.silent) {
-    console.log("Started DexTrade");
   }
   return exchange;
 };
@@ -423,6 +419,69 @@ type PersistedSimulationResult = {
   baselineConfig?: ConfigOptions;
 };
 
+type SimSymbolTradeStats = {
+  name: string;
+  trades: number;
+  takeProfits: number;
+  stopLosses: number;
+  stopLossSells: number;
+  stopLossBuys: number;
+  sells: number;
+  buys: number;
+  holds: number;
+};
+
+type SimVariantTradeStats = {
+  trades: number;
+  takeProfits: number;
+  stopLosses: number;
+  stopLossSells: number;
+  stopLossBuys: number;
+  sells: number;
+  buys: number;
+  holds: number;
+  symbols: SimSymbolTradeStats[];
+};
+
+const aggregateTradeStatsFromResult = (r: SimulationApiResult): SimVariantTradeStats | undefined => {
+  if (!r.ok || !Array.isArray(r.symbols)) return undefined;
+  const symbols: SimSymbolTradeStats[] = r.symbols.map((s) => ({
+    name: String(s.name ?? ""),
+    trades: Number(s.trades) || 0,
+    takeProfits: Number(s.takeProfits) || 0,
+    stopLosses: Number(s.stopLosses) || 0,
+    stopLossSells: Number(s.stopLossSells) || 0,
+    stopLossBuys: Number(s.stopLossBuys) || 0,
+    sells: Number(s.sells) || 0,
+    buys: Number(s.buys) || 0,
+    holds: Number(s.holds) || 0,
+  }));
+  return symbols.reduce<SimVariantTradeStats>(
+    (acc, s) => {
+      acc.trades += s.trades;
+      acc.takeProfits += s.takeProfits;
+      acc.stopLosses += s.stopLosses;
+      acc.stopLossSells += s.stopLossSells;
+      acc.stopLossBuys += s.stopLossBuys;
+      acc.sells += s.sells;
+      acc.buys += s.buys;
+      acc.holds += s.holds;
+      return acc;
+    },
+    {
+      trades: 0,
+      takeProfits: 0,
+      stopLosses: 0,
+      stopLossSells: 0,
+      stopLossBuys: 0,
+      sells: 0,
+      buys: 0,
+      holds: 0,
+      symbols,
+    }
+  );
+};
+
 type SimulationRunSummaryRow = {
   source: "grid-results" | "grid-progress" | "grid-last" | "simulate-last" | "grid-cache";
   file: string;
@@ -436,28 +495,42 @@ type SimulationRunSummaryRow = {
   candleRows: number;
   variant?: unknown;
   values: Record<string, unknown>;
+  tradeStats?: SimVariantTradeStats;
   /** simulate-last + tallennettu baselineConfig — koko exchanges → live (paikallinen sim-istunto). */
   hasPersistedBaseline?: boolean;
   /** Grid baseline (variantti #1): simulation/baseline-options-*.json */
   baselineOptionsSnapshotFile?: string;
   /** Grid baseline — Koko baseline → live -nappi */
   hasGridBaselineSnapshot?: boolean;
+  /** API: voidaanko rivin parametrit siirtää (Liveen / simulaatiossa). */
+  canApplyVariant?: boolean;
+  /** API: normalisoitu variantti siirtoa varten. */
+  applyVariant?: unknown;
+  /** API: voidaanko koko baseline exchanges → live. */
+  canApplyBaseline?: boolean;
 };
 
 const hoobot = async () => {
   try {
     seedTakeProfitRuntimeForAllSymbols(options);
+    initConsecutiveLossGuard();
     if (await checkLicenseValidity(options.license)) {
       console.log("License key is valid. Enjoy the trading with Hoobot!");
     } else {
       console.log(
-        "Invalid license key. Please purchase a valid license. Contact toni.lukkaroinen@hoosat.fi to purchase Hoobot Hoobot. There are preventions to notice this if you remove this check.",
+        "Invalid license key. Please purchase a valid license. Contact toni.lukkaroinen@hoosat.fi to purchase Hoobot Hoobot. There are preventions to notice this if you remove this check."
       );
     }
     let discord: Awaited<ReturnType<typeof loginDiscord>> = undefined;
     const exchanges: Exchange[] = [];
-    if (options.discord?.enabled === true) {
-      discord = await loginDiscord(exchanges, options);
+    if (options.discord?.enabled === true && process.env.SIMULATE !== "true") {
+      try {
+        discord = await loginDiscord(exchanges, options);
+      } catch (error) {
+        console.error("Discord login failed — jatketaan ilman Discordia:", error);
+      }
+    } else if (options.discord?.enabled === true && process.env.SIMULATE === "true") {
+      console.log("Discord ohitetaan simulaatio-istunnossa (SIMULATE=true) — ei WebSocket-yhteyttä Discordiin.");
     }
     for (var exchangeOptions of options.exchanges) {
       exchangeOptions.dryRun = options.dryRun ?? false;
@@ -478,14 +551,6 @@ const hoobot = async () => {
         exchangeOptions.socket = await startMexc(exchangeOptions);
         exchanges.push(exchangeOptions.socket);
       }
-      if (exchangeOptions.name === "dextrade") {
-        const setupDexTrade = async (exchangeOptions: any): Promise<Exchange> => {
-          exchangeOptions.socket = await startDexTrade(exchangeOptions);
-          return exchangeOptions.socket;
-        };
-        exchangeOptions.socket = await setupDexTrade(exchangeOptions);
-        exchanges.push(exchangeOptions.socket);
-      }
       if (exchangeOptions.name === "binance") {
         exchangeOptions.socket = await startBinance(exchangeOptions);
         exchanges.push(exchangeOptions.socket);
@@ -503,26 +568,10 @@ const hoobot = async () => {
 
 // --- PNL helpers for Dashboard ---
 
-const getTargetTimestamp = (duration: string): number => {
-  const now = Math.floor(new Date().getTime() / 1000);
-  switch (duration.toUpperCase()) {
-    case "1D":
-      return now - 24 * 60 * 60;
-    case "1W":
-      return now - 7 * 24 * 60 * 60;
-    case "1M":
-      return now - 30 * 24 * 60 * 60;
-    case "1Y":
-      return now - 30 * 24 * 60 * 60 * 12;
-    default:
-      throw new Error("Invalid duration");
-  }
-};
-
 const getHistoricalTradesForDuration = async (
   exchange: Exchange,
   symbol: string,
-  duration: string,
+  duration: string
 ): Promise<Trade[]> => {
   const tradeHistory: Trade[] = await getTradeHistory(exchange, symbol);
   const targetTimestamp: number = getTargetTimestamp(duration.toUpperCase());
@@ -536,9 +585,45 @@ const getHistoricalTradesForDuration = async (
 };
 
 // Prevent hammering exchange REST endpoints from the Dashboard.
-// When bot is running, we also prefer `exchangeOptions.tradeHistory` over fresh REST calls.
 const pnlCacheByKey: Record<string, { at: number; data: unknown }> = {};
 const PNL_CACHE_MS = 15000;
+const priceChartCacheByKey: Record<string, { at: number; data: unknown }> = {};
+const PRICE_CHART_CACHE_MS = 30000;
+
+const resolveDashboardExchange = async (
+  exchangeName: string
+): Promise<
+  | { exchange: Exchange; exchangeOptions: ExchangeOptions }
+  | { error: string; status: number }
+> => {
+  const exchangeOptions = options.exchanges.find((e) => e.name === exchangeName);
+  if (!exchangeOptions) {
+    return { error: `Exchange '${exchangeName}' not found in settings`, status: 400 };
+  }
+  let exchange: Exchange;
+  if (exchangeOptions.socket) {
+    exchange = exchangeOptions.socket;
+  } else if (exchangeOptions.name === "binance") {
+    exchange = await startBinance(exchangeOptions, { silent: true });
+  } else if (exchangeOptions.name === "nonkyc") {
+    exchange = await startNonKYC(exchangeOptions, { silent: true });
+  } else if (exchangeOptions.name === "mexc") {
+    exchange = await startMexc(exchangeOptions, { silent: true });
+  } else {
+    return { error: `Exchange '${exchangeOptions.name}' not supported for dashboard`, status: 400 };
+  }
+  return { exchange, exchangeOptions };
+};
+
+/** Kryptot-sivu: CoinGecko ID per näytettävä ticker. */
+const CRYPTO_COINGECKO_IDS: Record<string, string> = {
+  KAS: "kaspa",
+  RXD: "radiant",
+  ALEO: "aleo",
+};
+let cryptoPricesCache: { at: number; data: { RAW: Record<string, Record<string, { PRICE: number; CHANGEPCT24HOUR: number }>> } } | null =
+  null;
+const CRYPTO_PRICES_CACHE_MS = 55_000;
 
 const simulate = async (): Promise<SimulationApiResult> => {
   try {
@@ -560,14 +645,14 @@ const stopHoobot = () => {
     console.log(
       "Symbols to to shut down %d in the exchange %s",
       options.exchanges[i].symbols?.length ?? 0,
-      options.exchanges[i].name,
+      options.exchanges[i].name
     );
     if (options.exchanges[i].name == "nonkyc") {
       for (var x = 0; x < (options.exchanges[i].symbols?.length ?? 0); x++) {
         for (var y = 0; y < (options.exchanges[i].symbols[x].timeframes?.length ?? 0); y++) {
           (socket as NonKYC).unsubscribeCandles(
             options.exchanges[i].symbols[x].name,
-            getMinutesFromInterval(options.exchanges[i].symbols[x].timeframes[y]),
+            getMinutesFromInterval(options.exchanges[i].symbols[x].timeframes[y])
           );
         }
         (socket as NonKYC).unsubscribeOrderbook(options.exchanges[i].symbols[x].name);
@@ -585,6 +670,10 @@ const stopHoobot = () => {
 const webServer = async () => {
   const app = express();
   const isSimulateInstance = process.env.SIMULATE === "true";
+  if (isSimulateInstance) {
+    applySimulateProcessNice();
+    installSimulationShutdownHandlers();
+  }
   const PORT = process.env.PORT || (isSimulateInstance ? 5657 : 5656);
   const simulationDir = path.join(findProjectRoot(), "simulation");
   const simulationCacheDir = path.join(simulationDir, "cache");
@@ -596,6 +685,15 @@ const webServer = async () => {
   const simulateOptionsFilename = getSimulateOptionsFilePath();
   /** Live aina hoobot-options.json; simulaatio-istunto oma tiedosto (+ fallback lukemisessa liveen). */
   const optionsFilename = isSimulateInstance ? simulateOptionsFilename : liveOptionsFilename;
+
+  if (isSimulateInstance && existsSync(simulationDir)) {
+    const recovered = recoverGridProgressFromBackup(simulationDir);
+    if (recovered.recovered) {
+      logger.info(
+        `Grid-progress palautettu backupista ${recovered.fromFile ?? ""} (${recovered.okResults} onnistunutta varianttia).`
+      );
+    }
+  }
 
   const effectiveSettingsReadPath = (): string => {
     if (!isSimulateInstance) return optionsFilename;
@@ -635,6 +733,13 @@ const webServer = async () => {
 
   const cloneJsonValue = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 
+  const writeJsonFileAtomic = (filePath: string, doc: unknown): void => {
+    const dir = path.dirname(filePath);
+    const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
+    fs.writeFileSync(tmp, JSON.stringify(doc, null, 2), "utf-8");
+    fs.renameSync(tmp, filePath);
+  };
+
   const valueAtDotPath = (root: unknown, dotted: string): unknown => {
     const parts = dotted.split(".").filter((p) => p.length > 0);
     if (parts.length === 0) return undefined;
@@ -671,7 +776,7 @@ const webServer = async () => {
   const mergeIncomingSymbolPreserveLiveRuntime = (
     incoming: Record<string, unknown>,
     existing: SymbolOptions | undefined,
-    policy?: SimToLiveSymbolMergePolicy,
+    policy?: SimToLiveSymbolMergePolicy
   ): Record<string, unknown> => {
     if (!existing) return { ...incoming };
 
@@ -765,33 +870,6 @@ const webServer = async () => {
     return merged;
   };
 
-  /** Grid-variantista symbolipatch: ensin Binance (vanhat grid-tiedostot), muuten ensimmäinen pörssi jolla on symboleita. */
-  const extractSymbolPatchFromGridVariant = (variant: unknown): Record<string, unknown> | null => {
-    if (variant == null || typeof variant !== "object") return null;
-    const v = variant as Record<string, unknown>;
-    const exchanges = v.exchanges;
-    if (!Array.isArray(exchanges)) return null;
-    const pickEx = (): { symbols?: unknown[] } | undefined => {
-      const binance = exchanges.find(
-        (e: unknown) => e != null && typeof e === "object" && (e as { name?: string }).name === "binance",
-      ) as { symbols?: unknown[] } | undefined;
-      if (binance?.symbols?.length) return binance;
-      for (const e of exchanges) {
-        if (e == null || typeof e !== "object") continue;
-        const ex = e as { symbols?: unknown[] };
-        if (Array.isArray(ex.symbols) && ex.symbols.length > 0) return ex;
-      }
-      return undefined;
-    };
-    const picked = pickEx();
-    if (!picked?.symbols?.length) return null;
-    const sym = picked.symbols[0];
-    if (!sym || typeof sym !== "object") return null;
-    const symObj = sym as Record<string, unknown>;
-    const { name: _n, ...rest } = symObj;
-    return rest;
-  };
-
   /** Yhteinen siirto: kirjoita hoobot-options -tiedostoon (polku annettu) yhteenvetovariantin patch. */
   const applySummaryVariantToHoobotJsonFile = (
     targetFilePath: string,
@@ -800,21 +878,19 @@ const webServer = async () => {
       targetSymbolName?: string;
       applyToAll?: boolean;
       variant?: unknown;
-    },
-  ): { ok: true; appliedSymbols: string[]; basename: string } | { ok: false; status: number; error: string } => {
-    const patch = extractSymbolPatchFromGridVariant(body.variant);
-    if (patch === null) {
+      flatValues?: Record<string, unknown>;
+      values?: Record<string, unknown>;
+    }
+  ):
+    | { ok: true; appliedSymbols: string[]; basename: string }
+    | { ok: false; status: number; error: string } => {
+    const flatValues = body.flatValues ?? body.values;
+    const resolved = resolveSummaryApplyVariant(body.variant, flatValues);
+    if (!resolved.canApply || resolved.applyVariant == null) {
       return {
         ok: false,
         status: 400,
         error: "Puuttuu variantti tai ei symbolipatchia (exchanges → … → symbols[0]).",
-      };
-    }
-    if (Object.keys(patch).length === 0) {
-      return {
-        ok: false,
-        status: 400,
-        error: "Baseline / tyhjä variantti — ei parametreja siirrettäväksi. Valitse variantti jossa on akseliarvoja.",
       };
     }
     if (!fs.existsSync(targetFilePath)) {
@@ -868,19 +944,158 @@ const webServer = async () => {
             error: `Symbolia "${nm}" ei löydy asetuksissa.`,
           };
         }
+        const patch =
+          extractSymbolPatchFromGridVariant(resolved.applyVariant, nm) ??
+          extractSymbolPatchFromGridVariant(resolved.applyVariant);
+        if (!patch || Object.keys(patch).length === 0) {
+          if (applyToAll) continue;
+          return {
+            ok: false,
+            status: 400,
+            error: `Variantissa ei ole parametreja parille "${nm}".`,
+          };
+        }
         const existingSym = syms[sIdx];
         const incoming = { ...patch, name: nm } as Record<string, unknown>;
+        delete incoming.growingMax;
         const merged = mergeIncomingSymbolPreserveLiveRuntime(incoming, existingSym, simToLivePol);
         syms[sIdx] = merged as unknown as SymbolOptions;
         syncTakeProfitRuntimeFromConfig(syms[sIdx]);
         applied.push(nm);
       }
+      if (applied.length === 0) {
+        return {
+          ok: false,
+          status: 400,
+          error: applyToAll
+            ? "Yhtään kohdeparia ei voitu yhdistää variantin parametreilla."
+            : "Kohdeparia ei voitu yhdistää.",
+        };
+      }
       ex.symbols = syms as SymbolOptions[];
-      fs.writeFileSync(targetFilePath, JSON.stringify(sanitizeOptionsDocument(liveDoc as ConfigOptions), null, 2));
+      writeJsonFileAtomic(
+        targetFilePath,
+        sanitizeOptionsDocument(liveDoc as ConfigOptions)
+      );
       return { ok: true, appliedSymbols: applied, basename: path.basename(targetFilePath) };
     } catch (e) {
       console.error("applySummaryVariantToHoobotJsonFile:", e);
       return { ok: false, status: 500, error: "Siirto epäonnistui (tiedoston käsittely)." };
+    }
+  };
+
+  /** Baseline-snapshotin symbolit yhdistetään liveen (koko symboli, ei vain grid-patch). */
+  const applyBaselineSymbolsToHoobotJsonFile = (
+    targetFilePath: string,
+    baselineExchanges: ExchangeOptions[],
+    body: {
+      exchangeName?: string;
+      targetSymbolName?: string;
+      applyToAll?: boolean;
+    }
+  ):
+    | { ok: true; appliedSymbols: string[]; basename: string }
+    | { ok: false; status: number; error: string } => {
+    if (!baselineExchanges.length) {
+      return { ok: false, status: 400, error: "Baselinesta ei löytynyt pörssejä." };
+    }
+    if (!fs.existsSync(targetFilePath)) {
+      return {
+        ok: false,
+        status: 400,
+        error: "Asetustiedostoa ei löydy: " + targetFilePath,
+      };
+    }
+    try {
+      const rawLive = fs.readFileSync(targetFilePath, "utf-8");
+      const liveDoc = (rawLive ? JSON.parse(rawLive) : {}) as Record<string, unknown>;
+      const simToLivePol = readSimToLiveMergePolicy(liveDoc);
+      const exchanges = liveDoc.exchanges as ExchangeOptions[] | undefined;
+      if (!Array.isArray(exchanges) || exchanges.length === 0) {
+        return { ok: false, status: 400, error: "Konfigissa ei ole pörssejä." };
+      }
+      const wantEx = (body.exchangeName ?? "").toString().trim();
+      let exIdx = wantEx ? exchanges.findIndex((e) => e && e.name === wantEx) : 0;
+      if (exIdx < 0 && wantEx) {
+        return {
+          ok: false,
+          status: 400,
+          error: `Pörssiä "${wantEx}" ei löydy live-asetuksista.`,
+        };
+      }
+      if (exIdx < 0) exIdx = 0;
+      const ex = exchanges[exIdx];
+      if (!ex || !Array.isArray(ex.symbols)) {
+        return { ok: false, status: 400, error: "Pörssillä ei ole symbolilistaa." };
+      }
+      const baselineEx =
+        (wantEx ? baselineExchanges.find((e) => e && e.name === wantEx) : undefined) ??
+        baselineExchanges[0];
+      if (!baselineEx || !Array.isArray(baselineEx.symbols) || baselineEx.symbols.length === 0) {
+        return { ok: false, status: 400, error: "Baseline-pörssillä ei ole symboleja." };
+      }
+      const baselineByName = new Map<string, SymbolOptions>();
+      for (const s of baselineEx.symbols) {
+        if (s?.name) baselineByName.set(String(s.name), s);
+      }
+      const syms = [...ex.symbols];
+      const applyToAll = body.applyToAll === true;
+      const targetName = (body.targetSymbolName ?? "").toString().trim();
+      if (!applyToAll && !targetName) {
+        return { ok: false, status: 400, error: "Valitse kohdepari tai käytä Siirrä kaikkiin." };
+      }
+      const targetNames = applyToAll
+        ? syms.map((s) => (s && s.name ? String(s.name) : "")).filter(Boolean)
+        : [targetName];
+      if (targetNames.length === 0) {
+        return { ok: false, status: 400, error: "Ei kohdesymboleja." };
+      }
+      const applied: string[] = [];
+      for (const nm of targetNames) {
+        const baselineSym = baselineByName.get(nm);
+        if (!baselineSym) {
+          if (applyToAll) continue;
+          return {
+            ok: false,
+            status: 400,
+            error: `Baseline ei sisällä paria "${nm}" (pörssi ${baselineEx.name ?? "?"}).`,
+          };
+        }
+        const sIdx = syms.findIndex((s) => s && s.name === nm);
+        if (sIdx < 0) {
+          if (applyToAll) continue;
+          return {
+            ok: false,
+            status: 400,
+            error: `Symbolia "${nm}" ei löydy live-asetuksista.`,
+          };
+        }
+        const existingSym = syms[sIdx];
+        const incoming = cloneJsonValue(baselineSym) as unknown as Record<string, unknown>;
+        delete incoming.growingMax;
+        const merged = mergeIncomingSymbolPreserveLiveRuntime(incoming, existingSym, simToLivePol);
+        syms[sIdx] = merged as unknown as SymbolOptions;
+        syncTakeProfitRuntimeFromConfig(syms[sIdx]);
+        applied.push(nm);
+      }
+      if (applied.length === 0) {
+        return {
+          ok: false,
+          status: 400,
+          error: applyToAll
+            ? "Yhtään live-paria ei vastannut baseline-symboleja."
+            : "Kohdeparia ei voitu yhdistää.",
+        };
+      }
+      ex.symbols = syms as SymbolOptions[];
+      writeJsonFileAtomic(
+        targetFilePath,
+        sanitizeOptionsDocument(liveDoc as ConfigOptions)
+      );
+      return { ok: true, appliedSymbols: applied, basename: path.basename(targetFilePath) };
+    } catch (e) {
+      console.error("applyBaselineSymbolsToHoobotJsonFile:", e);
+      return { ok: false, status: 500, error: "Baseline-siirto epäonnistui (tiedoston käsittely)." };
     }
   };
 
@@ -922,6 +1137,26 @@ const webServer = async () => {
     } catch {
       return null;
     }
+  };
+
+  /** Grid-progress kirjoitetaan usein — lyhyt uudelleenyritys välttää tyhjän yhteenvedon kesken kirjoituksen. */
+  const readJsonFileWithRetry = <T>(filePath: string, attempts = 5): T | null => {
+    if (!existsSync(filePath)) return null;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const raw = fs.readFileSync(filePath, "utf-8");
+        if (!raw) return null;
+        return JSON.parse(raw) as T;
+      } catch {
+        if (i < attempts - 1) {
+          const deadline = Date.now() + 40;
+          while (Date.now() < deadline) {
+            /* brief spin */
+          }
+        }
+      }
+    }
+    return null;
   };
 
   const writeJsonSafe = (filePath: string, value: unknown): void => {
@@ -973,7 +1208,10 @@ const webServer = async () => {
     }
   };
 
-  const persistSimulationResult = (result: SimulationApiResult, opts?: { baselineConfig?: ConfigOptions }): void => {
+  const persistSimulationResult = (
+    result: SimulationApiResult,
+    opts?: { baselineConfig?: ConfigOptions }
+  ): void => {
     try {
       if (!result.ok && "aborted" in result && result.aborted === true) {
         return;
@@ -981,11 +1219,7 @@ const webServer = async () => {
       if (!existsSync(simulationDir)) mkdirSync(simulationDir, { recursive: true });
       let resultToStore = result;
       if (result.ok && ("persistedAt" in result || "summarySource" in result)) {
-        const {
-          persistedAt: _pa,
-          summarySource: _ss,
-          ...rest
-        } = result as Extract<SimulationApiResult, { ok: true }> & {
+        const { persistedAt: _pa, summarySource: _ss, ...rest } = result as Extract<SimulationApiResult, { ok: true }> & {
           persistedAt?: string;
           summarySource?: string;
         };
@@ -1081,11 +1315,10 @@ const webServer = async () => {
     return null;
   };
 
-  const loadPersistedSimulationResult = (): SimulationApiResult | null =>
-    loadPersistedSimulationWithMeta()?.result ?? null;
+  const loadPersistedSimulationResult = (): SimulationApiResult | null => loadPersistedSimulationWithMeta()?.result ?? null;
 
   const enrichLastResultMetaForApi = (
-    last: SimulationApiResult,
+    last: SimulationApiResult
   ): { persistedAt?: string; summarySource?: "simulate-last" | "grid-last" | "grid-dump" } => {
     if (!last.ok) return {};
     try {
@@ -1166,7 +1399,7 @@ const webServer = async () => {
         Array.isArray(e.symbols) &&
         e.symbols.length > 0 &&
         e.symbols[0] != null &&
-        typeof e.symbols[0] === "object",
+        typeof e.symbols[0] === "object"
     );
     if (!exWithSym) return undefined;
     const symClone = JSON.parse(JSON.stringify(exWithSym.symbols[0])) as Record<string, unknown>;
@@ -1183,7 +1416,7 @@ const webServer = async () => {
   /** Grid baseline (variantIndex 0, patch {}): rakenna variantti baselineConfig / snapshot-tiedostosta. */
   const resolveGridSummaryVariant = (
     item: { variantIndex?: number; variant?: unknown },
-    dump: { baselineConfig?: ConfigOptions; baselineOptionsSnapshotFile?: string },
+    dump: { baselineConfig?: ConfigOptions; baselineOptionsSnapshotFile?: string }
   ): { variant: unknown; baselineOptionsSnapshotFile?: string; hasGridBaselineSnapshot: boolean } => {
     if (isNonemptyVariantPatch(item.variant)) {
       return { variant: item.variant, hasGridBaselineSnapshot: false };
@@ -1218,8 +1451,218 @@ const webServer = async () => {
     return { variant: item.variant ?? {}, hasGridBaselineSnapshot: false };
   };
 
+  const loadBaselineExchangesForSummaryApply = (opts: {
+    baselineOptionsSnapshotFile?: string;
+    gridSummaryFile?: string;
+  }): ConfigOptions["exchanges"] | null => {
+    const snapFromBody =
+      typeof opts.baselineOptionsSnapshotFile === "string"
+        ? opts.baselineOptionsSnapshotFile.trim()
+        : "";
+    if (snapFromBody && existsSync(snapFromBody)) {
+      try {
+        const rawSnap = fs.readFileSync(snapFromBody, "utf-8");
+        const cfg = rawSnap ? (JSON.parse(rawSnap) as ConfigOptions) : undefined;
+        if (cfg?.exchanges?.length) return cfg.exchanges;
+      } catch {
+        // fall through
+      }
+    }
+    const gridFile =
+      typeof opts.gridSummaryFile === "string" ? path.basename(opts.gridSummaryFile.trim()) : "";
+    if (gridFile) {
+      const gridPath = path.join(simulationDir, gridFile);
+      if (existsSync(gridPath)) {
+        try {
+          const rawGrid = fs.readFileSync(gridPath, "utf-8");
+          const dump = rawGrid
+            ? (JSON.parse(rawGrid) as {
+                baselineConfig?: ConfigOptions;
+                baselineOptionsSnapshotFile?: string;
+              })
+            : undefined;
+          if (dump?.baselineConfig?.exchanges?.length) {
+            return dump.baselineConfig.exchanges;
+          }
+          const snapFromDump =
+            typeof dump?.baselineOptionsSnapshotFile === "string"
+              ? dump.baselineOptionsSnapshotFile.trim()
+              : "";
+          if (snapFromDump && existsSync(snapFromDump)) {
+            const rawSnap2 = fs.readFileSync(snapFromDump, "utf-8");
+            const cfg2 = rawSnap2 ? (JSON.parse(rawSnap2) as ConfigOptions) : undefined;
+            if (cfg2?.exchanges?.length) return cfg2.exchanges;
+          }
+        } catch {
+          // fall through
+        }
+      }
+    }
+    if (existsSync(simulateLastResultFile)) {
+      try {
+        const rawLast = fs.readFileSync(simulateLastResultFile, "utf-8");
+        const parsed = rawLast ? (JSON.parse(rawLast) as PersistedSimulationResult) : null;
+        if (parsed?.baselineConfig?.exchanges?.length) {
+          return parsed.baselineConfig.exchanges;
+        }
+      } catch {
+        // fall through
+      }
+    }
+    return null;
+  };
+
   const SIM_SUMMARY_UI_ROW_LIMIT = 500;
   let lastSummaryCollectError: string | null = null;
+
+  const summarySourceRank: Record<SimulationRunSummaryRow["source"], number> = {
+    "grid-progress": 5,
+    "grid-last": 4,
+    "grid-cache": 3,
+    "grid-results": 2,
+    "simulate-last": 1,
+  };
+
+  const summaryDedupeKey = (row: SimulationRunSummaryRow): string => {
+    if (row.source === "simulate-last") {
+      return `simulate-last|${row.file}`;
+    }
+    if (
+      row.source === "grid-progress" ||
+      row.source === "grid-last" ||
+      row.source === "grid-results"
+    ) {
+      return `grid:${row.gridPath ?? row.file}|v:${row.variantIndex ?? -1}`;
+    }
+    return `${row.source}|${row.file}|v:${row.variantIndex ?? -1}`;
+  };
+
+  const savedAtFromGridResultsFileName = (fileName: string, fileMtime?: string): string | undefined => {
+    const m = fileName.match(/^grid-results-(\d+)\.json$/i);
+    if (!m) return fileMtime;
+    const ts = Number(m[1]);
+    if (!Number.isFinite(ts) || ts <= 0) return fileMtime;
+    return new Date(ts).toISOString();
+  };
+
+  const parseSummarySavedAtQueryMs = (raw: unknown): number | undefined => {
+    if (raw == null) return undefined;
+    const s = String(Array.isArray(raw) ? raw[0] : raw).trim();
+    if (!s) return undefined;
+    const t = Date.parse(s);
+    return Number.isFinite(t) ? t : undefined;
+  };
+
+  const summaryRowSavedAtMs = (row: SimulationRunSummaryRow): number => {
+    if (!row.savedAt) return 0;
+    const t = Date.parse(row.savedAt);
+    return Number.isFinite(t) ? t : 0;
+  };
+
+  const normalizeSummarySortKey = (
+    raw: unknown
+  ): "time" | "roi" | "finalPortfolio" | "tp" | "sl" => {
+    const k = String(raw ?? "").trim();
+    if (k === "time" || k === "finalPortfolio" || k === "roi" || k === "tp" || k === "sl") return k;
+    return "time";
+  };
+
+  const summaryRowTradeStat = (row: SimulationRunSummaryRow, field: "takeProfits" | "stopLosses"): number =>
+    Number(row.tradeStats?.[field]) || 0;
+
+  const sortSimulationSummaryRows = (
+    rows: SimulationRunSummaryRow[],
+    sortBy: string,
+    sortDir: string
+  ): SimulationRunSummaryRow[] => {
+    const key = normalizeSummarySortKey(sortBy);
+    const dirMul = sortDir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      let av = 0;
+      let bv = 0;
+      if (key === "time") {
+        av = summaryRowSavedAtMs(a);
+        bv = summaryRowSavedAtMs(b);
+      } else if (key === "finalPortfolio") {
+        av = Number(a.finalPortfolio) || 0;
+        bv = Number(b.finalPortfolio) || 0;
+      } else if (key === "tp") {
+        av = summaryRowTradeStat(a, "takeProfits");
+        bv = summaryRowTradeStat(b, "takeProfits");
+      } else if (key === "sl") {
+        av = summaryRowTradeStat(a, "stopLosses");
+        bv = summaryRowTradeStat(b, "stopLosses");
+      } else {
+        av = Number(a.roi) || 0;
+        bv = Number(b.roi) || 0;
+      }
+      if (av !== bv) return av > bv ? dirMul : -dirMul;
+      const at = summaryRowSavedAtMs(a);
+      const bt = summaryRowSavedAtMs(b);
+      return dirMul === 1 ? at - bt : bt - at;
+    });
+  };
+
+  const summaryRowMatchesSavedAtRange = (
+    row: SimulationRunSummaryRow,
+    fromMs: number | undefined,
+    toMs: number | undefined
+  ): boolean => {
+    if (fromMs == null && toMs == null) return true;
+    const t = summaryRowSavedAtMs(row);
+    if (t <= 0) return false;
+    if (fromMs != null && t < fromMs) return false;
+    if (toMs != null && t > toMs) return false;
+    return true;
+  };
+
+  const formatSummarySavedAtFilterFi = (fromMs?: number, toMs?: number): string => {
+    const fmt = (ms: number) => new Date(ms).toLocaleString("fi-FI");
+    if (fromMs != null && toMs != null) return `${fmt(fromMs)} – ${fmt(toMs)}`;
+    if (fromMs != null) return `alkaen ${fmt(fromMs)}`;
+    if (toMs != null) return `päättyen ${fmt(toMs)}`;
+    return "";
+  };
+
+  const shouldPreferSummaryRow = (
+    candidate: SimulationRunSummaryRow,
+    incumbent: SimulationRunSummaryRow
+  ): boolean => {
+    const cr = summarySourceRank[candidate.source] ?? 0;
+    const ir = summarySourceRank[incumbent.source] ?? 0;
+    if (cr !== ir) return cr > ir;
+    const ct = candidate.savedAt ? Date.parse(candidate.savedAt) : 0;
+    const it = incumbent.savedAt ? Date.parse(incumbent.savedAt) : 0;
+    if (ct !== it) return ct > it;
+    return false;
+  };
+
+  const readGridProgressSnapshot = (): {
+    partial: boolean;
+    variantCount: number;
+    okResults: number;
+    totalResults: number;
+    updatedAt?: string;
+    gridPath?: string;
+  } | null => {
+    const parsed = readJsonFileWithRetry<{
+      partial?: boolean;
+      variantCount?: number;
+      updatedAt?: string;
+      gridPath?: string;
+      results?: Array<{ result?: { ok?: boolean } }>;
+    }>(path.join(simulationDir, "grid-progress-summary.json"), 5);
+    if (!parsed || !Array.isArray(parsed.results)) return null;
+    const okResults = parsed.results.filter((r) => r?.result?.ok === true).length;
+    return {
+      partial: parsed.partial === true,
+      variantCount: typeof parsed.variantCount === "number" ? parsed.variantCount : parsed.results.length,
+      okResults,
+      totalResults: parsed.results.length,
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : undefined,
+      gridPath: typeof parsed.gridPath === "string" ? parsed.gridPath : undefined,
+    };
+  };
 
   const collectSimulationSummaryDiagnostics = (): {
     gridResultsFileCount: number;
@@ -1241,13 +1684,15 @@ const webServer = async () => {
             gridResultsFileCount++;
           }
         }
-        const progress = readJsonIfExists<{ results?: Array<{ result?: { ok?: boolean } }> }>(
-          path.join(simulationDir, "grid-progress-summary.json"),
+        const progress = readJsonFileWithRetry<{ results?: Array<{ result?: { ok?: boolean } }> }>(
+          path.join(simulationDir, "grid-progress-summary.json")
         );
         if (progress?.results) {
           gridProgressResultCount = progress.results.filter((r) => r?.result?.ok).length;
         }
-        const gridLast = readJsonIfExists<{ results?: Array<{ result?: { ok?: boolean } }> }>(gridLastSummaryFile);
+        const gridLast = readJsonIfExists<{ results?: Array<{ result?: { ok?: boolean } }> }>(
+          gridLastSummaryFile
+        );
         if (gridLast?.results) {
           gridLastOkCount = gridLast.results.filter((r) => r?.result?.ok).length;
         }
@@ -1296,13 +1741,23 @@ const webServer = async () => {
           lower === "grid-progress-summary.json" ||
           lower === "grid-last-summary.json"
         ) {
-          const parsed = readJsonIfExists<unknown>(fullPath);
+          const useRetryRead =
+            lower === "grid-progress-summary.json" || lower === "grid-last-summary.json";
+          const parsed = useRetryRead
+            ? readJsonFileWithRetry<unknown>(fullPath, 5)
+            : readJsonIfExists<unknown>(fullPath);
           if (!parsed || typeof parsed !== "object") continue;
           const dump = parsed as {
             gridPath?: string;
+            updatedAt?: string;
             baselineConfig?: ConfigOptions;
             baselineOptionsSnapshotFile?: string;
-            results?: Array<{ variantIndex?: number; variant?: unknown; result?: SimulationApiResult }>;
+            results?: Array<{
+              variantIndex?: number;
+              variant?: unknown;
+              result?: SimulationApiResult;
+              completedAt?: string;
+            }>;
           };
           const sourceType: SimulationRunSummaryRow["source"] =
             lower === "grid-progress-summary.json"
@@ -1310,15 +1765,45 @@ const webServer = async () => {
               : lower === "grid-last-summary.json"
                 ? "grid-last"
                 : "grid-results";
+          const dumpSavedAt =
+            (sourceType === "grid-progress" || sourceType === "grid-last") &&
+            typeof dump.updatedAt === "string"
+              ? dump.updatedAt
+              : sourceType === "grid-results"
+                ? savedAtFromGridResultsFileName(name, savedAt)
+                : savedAt;
           const resultRows = Array.isArray(dump.results) ? dump.results : [];
           for (const item of resultRows) {
             const r = item?.result;
             if (!r || typeof r !== "object" || !("ok" in r) || !r.ok) continue;
             const resolvedGrid = resolveGridSummaryVariant(item, dump);
+            const fileSavedAtForRow =
+              sourceType === "grid-results"
+                ? savedAtFromGridResultsFileName(name, savedAt)
+                : dumpSavedAt;
+            const rowSavedAt =
+              typeof item.completedAt === "string" ? item.completedAt : fileSavedAtForRow;
+            const dumpBaselineSnap =
+              typeof dump.baselineOptionsSnapshotFile === "string"
+                ? dump.baselineOptionsSnapshotFile.trim()
+                : "";
+            const dumpHasBaseline = !!(dump.baselineConfig || dumpBaselineSnap);
+            const baselineResolvable = loadBaselineExchangesForSummaryApply({
+              baselineOptionsSnapshotFile: dumpBaselineSnap || undefined,
+              gridSummaryFile: name,
+            });
+            const flatValues = (() => {
+              const flat = flattenLeafValues(resolvedGrid.variant);
+              if (dumpBaselineSnap) {
+                flat["baseline.optionsSnapshotFile"] = dumpBaselineSnap;
+              }
+              return flat;
+            })();
+            const applyResolved = resolveSummaryApplyVariant(resolvedGrid.variant, flatValues);
             const row: SimulationRunSummaryRow = {
               source: sourceType,
               file: name,
-              savedAt,
+              savedAt: rowSavedAt,
               gridPath: typeof dump.gridPath === "string" ? dump.gridPath : undefined,
               variantIndex: typeof item.variantIndex === "number" ? item.variantIndex : undefined,
               roi: r.roi,
@@ -1326,25 +1811,19 @@ const webServer = async () => {
               startingBalance: r.startingBalance,
               finalPortfolio: r.finalPortfolio,
               candleRows: r.candleRows,
+              tradeStats: aggregateTradeStatsFromResult(r),
               variant: resolvedGrid.variant,
-              baselineOptionsSnapshotFile: resolvedGrid.baselineOptionsSnapshotFile,
-              hasGridBaselineSnapshot: resolvedGrid.hasGridBaselineSnapshot,
-              values: (() => {
-                const flat = flattenLeafValues(resolvedGrid.variant);
-                if (
-                  typeof item.variantIndex === "number" &&
-                  item.variantIndex === 0 &&
-                  typeof dump.baselineOptionsSnapshotFile === "string" &&
-                  dump.baselineOptionsSnapshotFile.length > 0
-                ) {
-                  flat["baseline.optionsSnapshotFile"] = dump.baselineOptionsSnapshotFile;
-                }
-                return flat;
-              })(),
+              baselineOptionsSnapshotFile:
+                resolvedGrid.baselineOptionsSnapshotFile || dumpBaselineSnap || undefined,
+              hasGridBaselineSnapshot: resolvedGrid.hasGridBaselineSnapshot || dumpHasBaseline,
+              canApplyVariant: applyResolved.canApply,
+              applyVariant: applyResolved.applyVariant ?? undefined,
+              canApplyBaseline: !!(baselineResolvable && baselineResolvable.length > 0),
+              values: flatValues,
             };
-            const key = `${row.gridPath ?? row.file}|${row.variantIndex ?? -1}|${row.roi}|${row.finalPortfolio}|${row.candleRows}`;
+            const key = summaryDedupeKey(row);
             const prev = dedupe.get(key);
-            if (!prev || (row.savedAt != null && (prev.savedAt == null || row.savedAt > prev.savedAt))) {
+            if (!prev || shouldPreferSummaryRow(row, prev)) {
               dedupe.set(key, row);
             }
           }
@@ -1353,9 +1832,12 @@ const webServer = async () => {
           if (!parsed?.result || !parsed.result.ok) continue;
           const r = parsed.result;
           let resolvedVariant: unknown = undefined;
-          if (r.gridVariant != null && typeof r.gridVariant === "object") {
-            resolvedVariant = r.gridVariant;
-          } else {
+          const rawGridVariant = r.gridVariant;
+          if (rawGridVariant != null && typeof rawGridVariant === "object") {
+            const gvResolved = resolveSummaryApplyVariant(rawGridVariant);
+            if (gvResolved.canApply) resolvedVariant = rawGridVariant;
+          }
+          if (resolvedVariant == null) {
             resolvedVariant = buildSyntheticGridVariantFromConfigOptions(parsed.baselineConfig);
             if (resolvedVariant == null) {
               try {
@@ -1371,6 +1853,18 @@ const webServer = async () => {
               }
             }
           }
+          const simFlatValues = flattenLeafValues(
+            resolvedVariant != null && typeof resolvedVariant === "object" ? resolvedVariant : {}
+          );
+          const simApplyResolved = resolveSummaryApplyVariant(resolvedVariant, simFlatValues);
+          const simHasBaseline = !!(
+            parsed.baselineConfig &&
+            Array.isArray(parsed.baselineConfig.exchanges) &&
+            parsed.baselineConfig.exchanges.length > 0
+          );
+          const simBaselineResolvable = simHasBaseline
+            ? loadBaselineExchangesForSummaryApply({})
+            : null;
           const row: SimulationRunSummaryRow = {
             source: "simulate-last",
             file: name,
@@ -1380,107 +1874,27 @@ const webServer = async () => {
             startingBalance: r.startingBalance,
             finalPortfolio: r.finalPortfolio,
             candleRows: r.candleRows,
+            tradeStats: aggregateTradeStatsFromResult(r),
             variant: resolvedVariant,
-            values: flattenLeafValues(
-              resolvedVariant != null && typeof resolvedVariant === "object" ? resolvedVariant : {},
-            ),
-            hasPersistedBaseline: (() => {
-              const b = parsed.baselineConfig;
-              return !!(b && typeof b === "object" && Array.isArray(b.exchanges) && b.exchanges.length > 0);
-            })(),
+            values: simFlatValues,
+            canApplyVariant: simApplyResolved.canApply,
+            applyVariant: simApplyResolved.applyVariant ?? undefined,
+            canApplyBaseline: !!(simBaselineResolvable && simBaselineResolvable.length > 0),
+            hasPersistedBaseline: simHasBaseline,
           };
-          const key = `${row.file}|${row.roi}|${row.finalPortfolio}|${row.candleRows}`;
+          const key = summaryDedupeKey(row);
           const prev = dedupe.get(key);
-          if (!prev || (row.savedAt != null && (prev.savedAt == null || row.savedAt > prev.savedAt))) {
+          if (!prev || shouldPreferSummaryRow(row, prev)) {
             dedupe.set(key, row);
           }
         }
       }
-      const gridVariantCacheDir = path.join(simulationDir, "cache", "grid-variants");
-      if (existsSync(gridVariantCacheDir)) {
-        for (const cacheName of fs.readdirSync(gridVariantCacheDir)) {
-          if (!cacheName.toLowerCase().endsWith(".json")) continue;
-          const cachePath = path.join(gridVariantCacheDir, cacheName);
-          const cached = readJsonIfExists<{
-            savedAt?: string;
-            variantIndex?: number;
-            variant?: unknown;
-            values?: Record<string, unknown>;
-            gridPath?: string;
-            simulationHistoryYears?: number;
-            baselineConfig?: ConfigOptions;
-            baselineOptionsSnapshotFile?: string;
-            result?: SimulationApiResult;
-          }>(cachePath);
-          const r = cached?.result;
-          if (!r || typeof r !== "object" || !r.ok) continue;
-          let cacheSavedAt: string | undefined;
-          try {
-            cacheSavedAt = new Date(fs.statSync(cachePath).mtimeMs).toISOString();
-          } catch {
-            cacheSavedAt = undefined;
-          }
-          const resolvedGrid = resolveGridSummaryVariant(
-            {
-              variantIndex: cached.variantIndex,
-              variant: cached.variant,
-            },
-            {
-              baselineConfig: cached.baselineConfig,
-              baselineOptionsSnapshotFile: cached.baselineOptionsSnapshotFile,
-            },
-          );
-          const row: SimulationRunSummaryRow = {
-            source: "grid-cache",
-            file: cacheName,
-            savedAt: typeof cached.savedAt === "string" ? cached.savedAt : cacheSavedAt,
-            gridPath: typeof cached.gridPath === "string" ? cached.gridPath : undefined,
-            variantIndex: typeof cached.variantIndex === "number" ? cached.variantIndex : undefined,
-            roi: r.roi,
-            roiPercent: r.roiPercent,
-            startingBalance: r.startingBalance,
-            finalPortfolio: r.finalPortfolio,
-            candleRows: r.candleRows,
-            variant: resolvedGrid.variant,
-            baselineOptionsSnapshotFile: resolvedGrid.baselineOptionsSnapshotFile,
-            hasGridBaselineSnapshot: resolvedGrid.hasGridBaselineSnapshot,
-            values: (() => {
-              const fromCache =
-                cached.values != null && typeof cached.values === "object" && Object.keys(cached.values).length > 0
-                  ? { ...cached.values }
-                  : null;
-              const flat = fromCache ?? flattenLeafValues(resolvedGrid.variant);
-              flat["cache.hash"] = cacheName.replace(/\.json$/i, "");
-              if (
-                !fromCache &&
-                typeof cached.variantIndex === "number" &&
-                cached.variantIndex === 0 &&
-                typeof cached.baselineOptionsSnapshotFile === "string" &&
-                cached.baselineOptionsSnapshotFile.length > 0
-              ) {
-                flat["baseline.optionsSnapshotFile"] = cached.baselineOptionsSnapshotFile;
-              }
-              return flat;
-            })(),
-          };
-          const key = `grid-cache|${cacheName}|${row.roi}|${row.finalPortfolio}|${row.candleRows}`;
-          const prev = dedupe.get(key);
-          if (!prev || (row.savedAt != null && (prev.savedAt == null || row.savedAt > prev.savedAt))) {
-            dedupe.set(key, row);
-          }
-        }
-      }
+      // Älä näytä simulation/cache/grid-variants -rivejä yhteenvedossa: sama variantti on jo grid-progress-summary.json:ssa.
     } catch (e) {
       lastSummaryCollectError = e instanceof Error ? e.message : String(e);
       console.error("collectSimulationSummaryRows:", e);
     }
     rows.push(...dedupe.values());
-    rows.sort((a, b) => {
-      if (b.roi !== a.roi) return b.roi - a.roi;
-      const at = a.savedAt ? Date.parse(a.savedAt) : 0;
-      const bt = b.savedAt ? Date.parse(b.savedAt) : 0;
-      return bt - at;
-    });
     return rows;
   };
 
@@ -1498,8 +1912,17 @@ const webServer = async () => {
   let simulateLastError: string | null = null;
   let simulateProgress: SimulationProgress | null = null;
 
-  app.get("/health", (_, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  registerHealthRoutes(app, { options, isSimulateInstance });
+  registerDashboardRoutes(app, {
+    options,
+    isSimulateInstance,
+    resolveDashboardExchange,
+    pnlCacheByKey,
+    priceChartCacheByKey,
+    PNL_CACHE_MS,
+    PRICE_CHART_CACHE_MS,
+    roundTripPnlAfterFees,
+    logger,
   });
 
   // Resolve Frontend directory: try next to bundle, then cwd/build, build-dev, src.
@@ -1517,7 +1940,7 @@ const webServer = async () => {
     logger.warn(
       "Frontend folder not found. Tried:",
       candidates.join(", "),
-      "- Run 'npm run build' to copy Frontend into build/",
+      "- Run 'npm run build' to copy Frontend into build/"
     );
   } else {
     logger.info("Serving frontend from:", frontendPath);
@@ -1539,7 +1962,7 @@ const webServer = async () => {
       return;
     }
     const useLastRaw = req.query.useLast;
-    const useLast = String(Array.isArray(useLastRaw) ? useLastRaw[0] : (useLastRaw ?? "")).toLowerCase() === "true";
+    const useLast = String(Array.isArray(useLastRaw) ? useLastRaw[0] : useLastRaw ?? "").toLowerCase() === "true";
     if (useLast) {
       const last = simulateLastResult ?? loadPersistedSimulationResult();
       if (last) {
@@ -1565,15 +1988,9 @@ const webServer = async () => {
       }
     }
     const baselineSnapshot = maskConfigSecretsForExport(JSON.parse(JSON.stringify(cfg)) as ConfigOptions);
-    const result = await runSimulationWithConfig(
-      cfg,
-      undefined,
-      () => simulateAbortRequested,
-      (p) => {
-        simulateProgress = p;
-      },
-      { saveCheckpoints: true },
-    );
+    const result = await runSimulationWithConfig(cfg, undefined, () => simulateAbortRequested, (p) => {
+      simulateProgress = p;
+    }, { saveCheckpoints: true });
     simulateRunning = false;
     simulateProgress = null;
     simulateLastResult = result;
@@ -1629,7 +2046,7 @@ const webServer = async () => {
       const baselineSnapshot = maskConfigSecretsForExport(JSON.parse(JSON.stringify(cfg)) as ConfigOptions);
       const simCacheKey = sha256({
         config: cfg,
-        years: Number.isFinite(yearsNum) && yearsNum >= 0 ? yearsNum : (cfg.simulationHistoryYears ?? null),
+        years: Number.isFinite(yearsNum) && yearsNum >= 0 ? yearsNum : cfg.simulationHistoryYears ?? null,
         dataSnapshot: getCandlestoreSnapshot(),
       });
       const simCacheFile = path.join(simulationSingleCacheDir, `${simCacheKey}.json`);
@@ -1653,7 +2070,7 @@ const webServer = async () => {
         (p) => {
           simulateProgress = p;
         },
-        { resumeFromFile: resume, checkpointPath, saveCheckpoints: true },
+        { resumeFromFile: resume, checkpointPath, saveCheckpoints: true }
       )
         .then((r) => {
           simulateLastResult = r;
@@ -1788,7 +2205,8 @@ const webServer = async () => {
       return;
     }
     const minRoiRaw = req.query.minRoi;
-    const minRoi = minRoiRaw != null && String(minRoiRaw).trim() !== "" ? Number(String(minRoiRaw).trim()) : undefined;
+    const minRoi =
+      minRoiRaw != null && String(minRoiRaw).trim() !== "" ? Number(String(minRoiRaw).trim()) : undefined;
     const minRoiPercentRaw = req.query.minRoiPercent;
     const minRoiFromPercent =
       minRoiPercentRaw != null && String(minRoiPercentRaw).trim() !== ""
@@ -1800,8 +2218,26 @@ const webServer = async () => {
         : minRoi != null && Number.isFinite(minRoi)
           ? minRoi
           : undefined;
+    const savedFromMs = parseSummarySavedAtQueryMs(req.query.savedFrom);
+    const savedToMs = parseSummarySavedAtQueryMs(req.query.savedTo);
+    if (savedFromMs != null && savedToMs != null && savedFromMs > savedToMs) {
+      res.status(400).json({
+        ok: false,
+        error: "Aikaväli virheellinen: Alkaen on myöhemmin kuin Päättyen.",
+      });
+      return;
+    }
 
-    const allRowsCollected = collectSimulationSummaryRows();
+    let allRowsCollected = collectSimulationSummaryRows();
+    const gridProgressEarly = readGridProgressSnapshot();
+    if (
+      allRowsCollected.length === 0 &&
+      gridProgressEarly &&
+      gridProgressEarly.okResults > 0 &&
+      !lastSummaryCollectError
+    ) {
+      allRowsCollected = collectSimulationSummaryRows();
+    }
     if (lastSummaryCollectError) {
       res.status(500).json({
         ok: false,
@@ -1810,26 +2246,86 @@ const webServer = async () => {
       });
       return;
     }
+    const totalCountUnfiltered = allRowsCollected.length;
+    const afterDateRows =
+      savedFromMs != null || savedToMs != null
+        ? allRowsCollected.filter((row) => summaryRowMatchesSavedAtRange(row, savedFromMs, savedToMs))
+        : allRowsCollected;
+    const totalCountAfterDate = afterDateRows.length;
     const allRows =
       minRoiFilter != null
-        ? allRowsCollected.filter((row) => Number.isFinite(row.roi) && row.roi >= minRoiFilter)
-        : allRowsCollected;
+        ? afterDateRows.filter((row) => Number.isFinite(row.roi) && row.roi >= minRoiFilter)
+        : afterDateRows;
     const totalCount = allRows.length;
-    const rows = allRows.slice(0, SIM_SUMMARY_UI_ROW_LIMIT);
+    const sortBy = normalizeSummarySortKey(req.query.sortBy);
+    const sortDirRaw = req.query.sortDir;
+    const sortDir =
+      sortDirRaw != null && String(sortDirRaw).trim() === "asc" ? "asc" : "desc";
+    const sortedForUi = sortSimulationSummaryRows(allRows, sortBy, sortDir);
+    const rows = sortedForUi.slice(0, SIM_SUMMARY_UI_ROW_LIMIT);
     const truncated = totalCount > rows.length;
-    const best = allRows.length > 0 ? allRows[0] : null;
+    const bestByRoi = sortSimulationSummaryRows(allRows, "roi", "desc");
+    const best = bestByRoi.length > 0 ? bestByRoi[0] : null;
+    const gridProgress = gridProgressEarly ?? readGridProgressSnapshot();
     const payload: Record<string, unknown> = {
       ok: true,
       simulationUi: isSimulateInstance,
+      simulationDir,
+      totalCountUnfiltered,
       totalCount,
       count: rows.length,
       truncated,
+      sortBy,
+      sortDir,
       minRoiFilter: minRoiFilter ?? null,
+      savedFrom: savedFromMs != null ? new Date(savedFromMs).toISOString() : null,
+      savedTo: savedToMs != null ? new Date(savedToMs).toISOString() : null,
+      totalCountAfterDate,
       best,
       rows,
+      gridProgress,
+      simGridRunning,
     };
+    if (truncated) {
+      const sortLabel =
+        sortBy === "time"
+          ? sortDir === "desc"
+            ? "uusin ensin"
+            : "vanhin ensin"
+          : sortBy === "finalPortfolio"
+            ? "loppusaldo"
+            : sortBy === "tp"
+              ? "TP"
+              : sortBy === "sl"
+                ? "SL"
+                : "ROI";
+      payload.truncatedHint = `Näytetään ${rows.length} / ${totalCount} riviä (${sortLabel}). Kaikki ${totalCount} riviä ovat simulation/-kansiossa.`;
+    }
     if (totalCount === 0) {
       payload.diagnostics = collectSimulationSummaryDiagnostics();
+      if (gridProgress && gridProgress.okResults > 0 && minRoiFilter != null) {
+        const diag = payload.diagnostics as { hint?: string };
+        diag.hint =
+          `${diag.hint ?? ""} Min ROI -suodatin piilottaa valmiit grid-variantit (useimmat ROI:t ovat negatiivisia). Tyhjennä Min ROI % -kenttä.`.trim();
+      }
+      if ((savedFromMs != null || savedToMs != null) && totalCountAfterDate === 0 && totalCountUnfiltered > 0) {
+        const diag = payload.diagnostics as { hint?: string };
+        diag.hint =
+          `${diag.hint ?? ""} Aikavälisuodatin (${formatSummarySavedAtFilterFi(savedFromMs, savedToMs)}) ei löytänyt rivejä — laajenna väliä tai tyhjennä Alkaen/Päättyen.`.trim();
+      }
+    } else {
+      const filterParts: string[] = [];
+      if ((savedFromMs != null || savedToMs != null) && totalCountAfterDate < totalCountUnfiltered) {
+        filterParts.push(
+          `aika (${formatSummarySavedAtFilterFi(savedFromMs, savedToMs)}): ${totalCountAfterDate} / ${totalCountUnfiltered} riviä`
+        );
+      }
+      if (minRoiFilter != null && totalCount < totalCountAfterDate) {
+        filterParts.push(`Min ROI: ${totalCount} / ${totalCountAfterDate} riviä`);
+      }
+      if (filterParts.length > 0) {
+        payload.filteredHint = `${filterParts.join("; ")}. Tyhjennä suodattimet nähdäksesi kaikki ajot.`;
+      }
     }
     res.json(payload);
   });
@@ -1902,7 +2398,8 @@ const webServer = async () => {
       typeof body.configPath === "string" && String(body.configPath).trim() !== ""
         ? String(body.configPath).trim()
         : "";
-    const relPath = pathFromBody || fresh.simGrid?.configPath || "settings/sim-grid.example.json";
+    const relPath =
+      pathFromBody || fresh.simGrid?.configPath || "settings/sim-grid.example.json";
     const absPath = resolveProjectRelativePath(relPath);
     if (!existsSync(absPath)) {
       res.status(400).json({
@@ -1933,7 +2430,7 @@ const webServer = async () => {
         });
       }
       console.log(
-        `[sim-grid] Tulos palautettiin välimuistista (sama grid + asetukset) — ei uutta ajoa. Polku: ${relPath}`,
+        `[sim-grid] Tulos palautettiin välimuistista (sama grid + asetukset) — ei uutta ajoa. Polku: ${relPath}`
       );
       res.json({
         ok: true,
@@ -1952,13 +2449,9 @@ const webServer = async () => {
     simGridProgress = null;
     console.log(`[sim-grid] Käynnistetään taustalla: ${relPath}`);
     setImmediate(() => {
-      executeSimGrid(
-        absPath,
-        () => simGridAbortRequested,
-        (p) => {
-          simGridProgress = p;
-        },
-      )
+      executeSimGrid(absPath, () => simGridAbortRequested, (p) => {
+        simGridProgress = p;
+      })
         .then((summary) => {
           simGridLastSummary = summary;
           writeJsonSafe(gridCacheFile, { savedAt: new Date().toISOString(), summary });
@@ -1983,6 +2476,12 @@ const webServer = async () => {
   });
 
   app.get("/simulate/grid-status", (_, res) => {
+    const gridProgress = readGridProgressSnapshot();
+    const resumable =
+      !simGridRunning &&
+      gridProgress != null &&
+      gridProgress.partial === true &&
+      gridProgress.okResults < gridProgress.variantCount;
     res.json({
       running: simGridRunning,
       startedAt: simGridStartedAt,
@@ -1990,15 +2489,23 @@ const webServer = async () => {
       progress: simGridProgress,
       lastSummary: simGridLastSummary,
       lastError: simGridLastError,
+      gridProgress,
+      resumable,
     });
   });
 
   app.get("/run", (_, res) => {
+    if (isSimulateInstance) {
+      res.status(403).json({
+        message: "Live-bottia ei voi käynnistää simulaatio-portista. Käytä live-porttia (5656) tai npm run start.",
+      });
+      return;
+    }
     if (options.running != true) {
       options.running = true;
       const optionsInFile = parseArgs();
       optionsInFile.running = true;
-      fs.writeFileSync(liveOptionsFilename, JSON.stringify(optionsInFile, null, 2));
+      fs.writeFileSync(liveOptionsFilename, JSON.stringify(sanitizeOptionsDocument(optionsInFile), null, 2));
       hoobot();
       res.json({ message: "Hoobot started" });
     } else {
@@ -2012,7 +2519,7 @@ const webServer = async () => {
       options.running = false;
       const optionsInFile = parseArgs();
       optionsInFile.running = false;
-      fs.writeFileSync(liveOptionsFilename, JSON.stringify(optionsInFile, null, 2));
+      fs.writeFileSync(liveOptionsFilename, JSON.stringify(sanitizeOptionsDocument(optionsInFile), null, 2));
       stopHoobot();
       res.json({ message: "Hoobot stopping" });
     } else {
@@ -2036,19 +2543,42 @@ const webServer = async () => {
 
   const mergeSettingsForSave = (
     current: Record<string, unknown>,
-    incoming: Record<string, unknown>,
+    incoming: Record<string, unknown>
   ): Record<string, unknown> => {
     const merged = JSON.parse(JSON.stringify(incoming)) as Record<string, unknown>;
     const curEx = current.exchanges as Array<{ key?: string; secret?: string }> | undefined;
-    const inEx = merged.exchanges as Array<{ key?: string; secret?: string }> | undefined;
-    if (Array.isArray(curEx) && Array.isArray(inEx)) {
+    const inEx = merged.exchanges as Array<{ key?: string; secret?: string; name?: string }> | undefined;
+    let liveEx: Array<{ key?: string; secret?: string; name?: string }> | undefined;
+    if (isSimulateInstance && fs.existsSync(liveOptionsFilename)) {
+      try {
+        const rawLive = fs.readFileSync(liveOptionsFilename, "utf-8");
+        const liveDoc = rawLive ? JSON.parse(rawLive) : {};
+        if (Array.isArray(liveDoc.exchanges)) {
+          liveEx = liveDoc.exchanges as Array<{ key?: string; secret?: string; name?: string }>;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (Array.isArray(inEx)) {
       for (let i = 0; i < inEx.length; i++) {
-        const c = curEx[i];
         const n = inEx[i];
-        if (c && n && typeof n === "object") {
-          const mask = (v: unknown) => v === "***" || v === "" || v == null;
-          if (mask(n.secret) && typeof c.secret === "string" && c.secret.length > 0) n.secret = c.secret;
-          if (mask(n.key) && typeof c.key === "string" && c.key.length > 0) n.key = c.key;
+        if (!n || typeof n !== "object") continue;
+        const c = curEx?.[i];
+        const liveByName =
+          liveEx && n.name ? liveEx.find((e) => e && e.name === n.name) : liveEx?.[i];
+        const mask = (v: unknown) => v === "***" || v === "" || v == null;
+        for (const field of ["secret", "key"] as const) {
+          if (!mask(n[field])) continue;
+          const curVal = c?.[field];
+          if (typeof curVal === "string" && curVal.length > 0 && !mask(curVal)) {
+            n[field] = curVal;
+            continue;
+          }
+          const liveVal = liveByName?.[field];
+          if (typeof liveVal === "string" && liveVal.length > 0 && !mask(liveVal)) {
+            n[field] = liveVal;
+          }
         }
       }
     }
@@ -2058,11 +2588,7 @@ const webServer = async () => {
       const curSg = current.simGrid as Record<string, unknown>;
       const inSg = merged.simGrid as Record<string, unknown>;
       const inPath = inSg.configPath;
-      if (
-        (inPath === undefined || inPath === "" || inPath === null) &&
-        curSg.configPath != null &&
-        curSg.configPath !== ""
-      ) {
+      if ((inPath === undefined || inPath === "" || inPath === null) && curSg.configPath != null && curSg.configPath !== "") {
         inSg.configPath = curSg.configPath;
       }
       if (inSg.enabled === undefined && curSg.enabled !== undefined) {
@@ -2124,13 +2650,17 @@ const webServer = async () => {
     } catch {
       // use body as-is if merge fails
     }
-    fs.writeFileSync(optionsFilename, JSON.stringify(sanitizeOptionsDocument(newOptions as ConfigOptions), null, 2));
-    options = newOptions as typeof options;
+    let validated = validateOptions(sanitizeOptionsDocument(newOptions as ConfigOptions) as ConfigOptions);
+    if (isSimulateInstance) {
+      validated = stripExchangeCredentialsForSimulatePersist(validated);
+    }
+    fs.writeFileSync(optionsFilename, JSON.stringify(validated, null, 2));
+    Object.assign(options, validated);
     // Simulaatio-UI (SIMULATE=true, esim. portti 5657): älä käynnistä live-bottia tallennuksella
     if (options.running == true && process.env.SIMULATE !== "true") {
       hoobot();
     }
-    res.json({ message: "Options updated successfully", options: maskSecretsForDisplay(newOptions) });
+    res.json({ message: "Options updated successfully", options: maskSecretsForDisplay(validated as Record<string, unknown>) });
   });
 
   /** Kopioi yhden parin asetukset simulaatiolomakkeesta tai -tiedostosta → live hoobot-options.json. */
@@ -2192,9 +2722,36 @@ const webServer = async () => {
     }
   });
 
-  app.options("/settings/live-symbols", (_, res) => {
-    simToLivePushCors(res);
-    res.sendStatus(204);
+  const restartLiveHoobotFromDisk = (): void => {
+    stopHoobot();
+    const fresh = validateOptions(JSON.parse(JSON.stringify(parseArgs())) as ConfigOptions);
+    fresh.running = true;
+    fs.writeFileSync(liveOptionsFilename, JSON.stringify(sanitizeOptionsDocument(fresh), null, 2));
+    Object.assign(options, fresh);
+    void hoobot().catch((err) => console.error("hoobot restart:", err));
+  };
+
+  const readPersistedBaselineExchanges = (snapFromBody: string): ConfigOptions | undefined => {
+    if (snapFromBody && existsSync(snapFromBody)) {
+      const rawSnap = fs.readFileSync(snapFromBody, "utf-8");
+      return rawSnap ? (JSON.parse(rawSnap) as ConfigOptions) : undefined;
+    }
+    if (existsSync(simulateLastResultFile)) {
+      const rawLast = fs.readFileSync(simulateLastResultFile, "utf-8");
+      const parsed = rawLast ? (JSON.parse(rawLast) as PersistedSimulationResult) : null;
+      return parsed?.baselineConfig;
+    }
+    return undefined;
+  };
+
+  registerSettingsAdminRoutes(app, {
+    isSimulateInstance,
+    liveOptionsFilename,
+    optionsFilename,
+    simToLivePushCors,
+    applySummaryVariantToHoobotJsonFile,
+    restartLiveHoobotFromDisk,
+    readPersistedBaselineExchanges,
   });
 
   /** Take profit -runtime (huippu, armed) symbolille — treidauksen tilan tarkistus UI:lle. */
@@ -2225,405 +2782,50 @@ const webServer = async () => {
     });
   });
 
-  /** hoobot-options.json - symbolilistat (Sim Yhteenveto → Live, paikallinen tai etä-CORS). */
-  app.get("/settings/live-symbols", (_, res) => {
-    simToLivePushCors(res);
+  /** Kryptot-sivun hinnat (CoinGecko; CryptoCompare vaatii API-avaimen). */
+  app.get("/api/crypto/prices", async (_req, res) => {
     try {
-      const readPath = isSimulateInstance ? liveOptionsFilename : optionsFilename;
-      if (!fs.existsSync(readPath)) {
-        res.json({ ok: true, exchanges: [] });
+      if (cryptoPricesCache && Date.now() - cryptoPricesCache.at < CRYPTO_PRICES_CACHE_MS) {
+        res.json(cryptoPricesCache.data);
         return;
       }
-      const raw = fs.readFileSync(readPath, "utf-8");
-      const doc = (raw ? JSON.parse(raw) : {}) as Record<string, unknown>;
-      const exchanges = Array.isArray(doc.exchanges) ? doc.exchanges : [];
-      const out: Array<{ name: string; symbols: Array<{ name: string }> }> = [];
-      for (const ex of exchanges) {
-        if (!ex || typeof ex !== "object") continue;
-        const e = ex as { name?: string; symbols?: SymbolOptions[] };
-        const symbols = Array.isArray(e.symbols)
-          ? e.symbols.filter((s) => s && s.name).map((s) => ({ name: String(s.name) }))
-          : [];
-        out.push({ name: String(e.name ?? ""), symbols });
+
+      const ids = [...new Set(Object.values(CRYPTO_COINGECKO_IDS))].join(",");
+      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd,eur&include_24hr_change=true`;
+      const response = await fetch(url, { headers: { Accept: "application/json" } });
+      if (!response.ok) {
+        res.status(502).json({ error: `Hintapalvelu vastasi ${response.status}` });
+        return;
       }
-      res.json({ ok: true, exchanges: out });
+
+      const coingecko = (await response.json()) as Record<string, Record<string, number>>;
+      const RAW: Record<string, Record<string, { PRICE: number; CHANGEPCT24HOUR: number }>> = {};
+      for (const [symbol, coinId] of Object.entries(CRYPTO_COINGECKO_IDS)) {
+        const row = coingecko[coinId];
+        if (!row) continue;
+        RAW[symbol] = {
+          USD: {
+            PRICE: Number(row.usd),
+            CHANGEPCT24HOUR: Number(row.usd_24h_change ?? 0),
+          },
+          EUR: {
+            PRICE: Number(row.eur),
+            CHANGEPCT24HOUR: Number(row.eur_24h_change ?? 0),
+          },
+        };
+      }
+
+      if (Object.keys(RAW).length === 0) {
+        res.status(502).json({ error: "Hintapalvelusta ei saatu kryptohintoja." });
+        return;
+      }
+
+      const data = { RAW };
+      cryptoPricesCache = { at: Date.now(), data };
+      res.json(data);
     } catch (e) {
-      console.error("live-symbols:", e);
-      res.status(500).json({ ok: false, error: "Live-symbolien luku epäonnistui." });
-    }
-  });
-
-  /** hoobot-options-simulate.json - symbolilistat (Sim Yhteenveto → käytä simulaatiossa). */
-  app.options("/settings/simulate-symbols", (_, res) => {
-    simToLivePushCors(res);
-    res.sendStatus(204);
-  });
-
-  app.get("/settings/simulate-symbols", (_, res) => {
-    simToLivePushCors(res);
-    if (!isSimulateInstance) {
-      res.status(403).json({ ok: false, error: "Vain simulaatio-istunnossa (SIMULATE=true)." });
-      return;
-    }
-    try {
-      const readPath = optionsFilename;
-      if (!fs.existsSync(readPath)) {
-        res.json({ ok: true, exchanges: [], basename: path.basename(readPath) });
-        return;
-      }
-      const raw = fs.readFileSync(readPath, "utf-8");
-      const doc = (raw ? JSON.parse(raw) : {}) as Record<string, unknown>;
-      const exchanges = Array.isArray(doc.exchanges) ? doc.exchanges : [];
-      const out: Array<{ name: string; symbols: Array<{ name: string }> }> = [];
-      for (const ex of exchanges) {
-        if (!ex || typeof ex !== "object") continue;
-        const e = ex as { name?: string; symbols?: SymbolOptions[] };
-        const symbols = Array.isArray(e.symbols)
-          ? e.symbols.filter((s) => s && s.name).map((s) => ({ name: String(s.name) }))
-          : [];
-        out.push({ name: String(e.name ?? ""), symbols });
-      }
-      res.json({ ok: true, exchanges: out, basename: path.basename(readPath) });
-    } catch (e) {
-      console.error("simulate-symbols:", e);
-      res.status(500).json({ ok: false, error: "Simulaatio-symbolien luku epäonnistui." });
-    }
-  });
-
-  /** Sim: kirjoita yhteenvetorivin variantti hoobot-options-simulate.json -tiedostoon (seuraava simulaatio). */
-  app.options("/settings/apply-summary-variant-to-simulate", (_, res) => {
-    simToLivePushCors(res);
-    res.sendStatus(204);
-  });
-
-  app.post("/settings/apply-summary-variant-to-simulate", (req, res) => {
-    simToLivePushCors(res);
-    if (!isSimulateInstance) {
-      res.status(403).json({ ok: false, error: "Vain simulaatio-istunnossa." });
-      return;
-    }
-    try {
-      const body = req.body as {
-        exchangeName?: string;
-        targetSymbolName?: string;
-        applyToAll?: boolean;
-        variant?: unknown;
-      };
-      const targetPath = optionsFilename;
-      const out = applySummaryVariantToHoobotJsonFile(targetPath, body);
-      if (!out.ok) {
-        res.status(out.status).json({
-          ok: false,
-          error: out.status === 400 ? out.error.replace(/^Asetustiedostoa/, "Simulaatio-asetustiedostoa") : out.error,
-        });
-        return;
-      }
-      res.json({
-        ok: true,
-        message: `Kirjoitettu ${out.appliedSymbols.length} parille (${out.appliedSymbols.join(", ")}) → ${path.basename(targetPath)}. Seuraava simulaatio käyttää näitä.`,
-        appliedSymbols: out.appliedSymbols,
-        basename: out.basename,
-      });
-    } catch (e) {
-      console.error("apply-summary-variant-to-simulate:", e);
-      res.status(500).json({ ok: false, error: "Siirto simulaatioasetuksiin epäonnistui." });
-    }
-  });
-
-  /** Sim: kirjoitus tähän koneella olevaan hoobot-options (live kopio tai jaettu polku); uudelleenkäynnistys erillisellä POST /live/restart. */
-  app.post("/settings/apply-summary-variant-to-live", (req, res) => {
-    if (!isSimulateInstance) {
-      res.status(403).json({ ok: false, error: "Vain simulaatio-istunnossa." });
-      return;
-    }
-    try {
-      const body = req.body as {
-        exchangeName?: string;
-        targetSymbolName?: string;
-        applyToAll?: boolean;
-        variant?: unknown;
-      };
-      const out = applySummaryVariantToHoobotJsonFile(liveOptionsFilename, body);
-      if (!out.ok) {
-        res.status(out.status).json({
-          ok: false,
-          error: out.status === 400 ? out.error.replace(/^Asetustiedostoa/, "Live-asetustiedostoa") : out.error,
-        });
-        return;
-      }
-      res.json({
-        ok: true,
-        message: `Siirretty ${out.appliedSymbols.length} parille (${out.appliedSymbols.join(", ")}) → ${path.basename(liveOptionsFilename)}.`,
-        appliedSymbols: out.appliedSymbols,
-        liveRestartPending: true,
-        hint: "Etä-botille käytä suoraa lähetystä tai POST /live/restart live-osoitteesta.",
-      });
-    } catch (e) {
-      console.error("apply-summary-variant-to-live:", e);
-      res.status(500).json({ ok: false, error: "Siirto epäonnistui." });
-    }
-  });
-
-  /**
-   * Sim-istunto: korvaa live hoobot-options.json `exchanges` kokonaan viimeksi tallennetun yksittäissimin
-   * baselineConfig.exchanges -listalla (maskatut avaimet). Varoitus UI:ssa — muut pörssit katoavat jos baseline on kapea.
-   */
-  app.post("/settings/apply-simulate-last-baseline-exchanges-to-live", (req, res) => {
-    if (!isSimulateInstance) {
-      res.status(403).json({ ok: false, error: "Vain simulaatio-istunnossa." });
-      return;
-    }
-    try {
-      const body =
-        req.body && typeof req.body === "object" ? (req.body as { baselineOptionsSnapshotFile?: unknown }) : {};
-      const snapFromBody =
-        typeof body.baselineOptionsSnapshotFile === "string" ? body.baselineOptionsSnapshotFile.trim() : "";
-      let baseline: ConfigOptions | undefined;
-      if (snapFromBody && existsSync(snapFromBody)) {
-        const rawSnap = fs.readFileSync(snapFromBody, "utf-8");
-        baseline = rawSnap ? (JSON.parse(rawSnap) as ConfigOptions) : undefined;
-      } else if (existsSync(simulateLastResultFile)) {
-        const rawLast = fs.readFileSync(simulateLastResultFile, "utf-8");
-        const parsed = rawLast ? (JSON.parse(rawLast) as PersistedSimulationResult) : null;
-        baseline = parsed?.baselineConfig;
-      }
-      if (!baseline || !Array.isArray(baseline.exchanges) || baseline.exchanges.length === 0) {
-        res.status(400).json({
-          ok: false,
-          error: snapFromBody
-            ? "Baseline-snapshot-tiedostosta ei löytynyt exchanges-listaa."
-            : "Tallennetussa tuloksessa ei ole baselineConfig.exchanges -osiota. Aja simulaatio uudelleen (SIMULATE=true) jotta baseline tallentuu.",
-        });
-        return;
-      }
-      if (!existsSync(liveOptionsFilename)) {
-        res.status(400).json({
-          ok: false,
-          error: "Live-asetustiedostoa ei löydy: " + path.basename(liveOptionsFilename),
-        });
-        return;
-      }
-      const rawLive = fs.readFileSync(liveOptionsFilename, "utf-8");
-      const liveDoc = (rawLive ? JSON.parse(rawLive) : {}) as Record<string, unknown>;
-      liveDoc.exchanges = JSON.parse(JSON.stringify(baseline.exchanges)) as unknown[];
-      fs.writeFileSync(liveOptionsFilename, JSON.stringify(liveDoc, null, 2));
-      res.json({
-        ok: true,
-        message: `Live-tiedoston exchanges korvattu baselin mukaan (${baseline.exchanges.length} pörssiä) → ${path.basename(liveOptionsFilename)}.`,
-        liveRestartPending: true,
-        hint: "Käynnistä live-botti uudelleen (tai POST /live/restart) jotta muutos astuu voimaan.",
-      });
-    } catch (e) {
-      console.error("apply-simulate-last-baseline-exchanges-to-live:", e);
-      res.status(500).json({ ok: false, error: "Siirto epäonnistui." });
-    }
-  });
-
-  app.options("/settings/remote-apply-summary-variant", (_, res) => {
-    simToLivePushCors(res);
-    res.sendStatus(204);
-  });
-
-  /**
-   * Live-botti yksin: vastaanotta sim-yhteenvedon variantin HTTP:lla, kirjoittaa omat asetuksensa ja käynnistää uudelleen.
-   * Vapaaehtoinen HOOBOT_APPLY_KEY — jos env on asetettu, pakollinen otsikko X-Hoobot-Apply-Key sama arvo.
-   */
-  app.post("/settings/remote-apply-summary-variant", (req, res) => {
-    simToLivePushCors(res);
-    if (isSimulateInstance) {
-      res.status(403).json({
-        ok: false,
-        error:
-          "Tämä komento on vain live-prosessissa. Simulaatioprosessissa käytä ”paikallista kopioita” tai kutsua live-botin osoitteesta.",
-      });
-      return;
-    }
-    const expectedKey = (process.env.HOOBOT_APPLY_KEY ?? "").trim();
-    if (expectedKey) {
-      const got = (req.header("x-hoobot-apply-key") ?? "").trim();
-      if (got !== expectedKey) {
-        res.status(401).json({
-          ok: false,
-          error: "Puuttuva tai väärä X-Hoobot-Apply-Key (livessä HOOBOT_APPLY_KEY).",
-        });
-        return;
-      }
-    }
-    try {
-      const body = req.body as {
-        exchangeName?: string;
-        targetSymbolName?: string;
-        applyToAll?: boolean;
-        variant?: unknown;
-      };
-      const out = applySummaryVariantToHoobotJsonFile(optionsFilename, body);
-      if (!out.ok) {
-        res.status(out.status).json({ ok: false, error: out.error });
-        return;
-      }
-      restartLiveHoobotFromDisk();
-      res.json({
-        ok: true,
-        message: `Siirretty ${out.appliedSymbols.length} parille (${out.appliedSymbols.join(", ")}) ja live käynnistettiin uudelleen (${out.basename}).`,
-        appliedSymbols: out.appliedSymbols,
-        restarted: true,
-      });
-    } catch (e) {
-      console.error("remote-apply-summary-variant:", e);
-      res.status(500).json({ ok: false, error: "Etäsiirto tai uudelleiskäynnistys epäonnistui." });
-    }
-  });
-
-  const restartLiveHoobotFromDisk = (): void => {
-    stopHoobot();
-    const fresh = validateOptions(JSON.parse(JSON.stringify(parseArgs())) as ConfigOptions);
-    fresh.running = true;
-    fs.writeFileSync(liveOptionsFilename, JSON.stringify(fresh, null, 2));
-    Object.assign(options, fresh);
-    void hoobot().catch((err) => console.error("hoobot restart:", err));
-  };
-
-  app.options("/live/restart", (_, res) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Hoobot-Apply-Key");
-    res.sendStatus(204);
-  });
-
-  /** Käynnistä live-botti uudelleen levylle tallennetuista asetuksista (vain SIMULATE≠true). */
-  app.post("/live/restart", (_, res) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    if (isSimulateInstance) {
-      res.status(403).json({
-        ok: false,
-        error:
-          "Tämä on simulaatiopalvelin. Käynnistä live-botti erillisessä Hoobot-prosessissa (SIMULATE ei asetettu), tai kutsu tämä endpointti live-portista (esim. 5656).",
-      });
-      return;
-    }
-    try {
-      restartLiveHoobotFromDisk();
-      res.json({ ok: true, message: "Live-botti käynnistetty uudelleen." });
-    } catch (e) {
-      console.error("live/restart:", e);
-      res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
-    }
-  });
-
-  // PNL summary for dashboard (reuse running exchange when bot is on, else temporary silent connection)
-  app.get("/api/pnl", async (req, res) => {
-    try {
-      const exchangeName = (req.query.exchange as string | undefined) ?? options.exchanges[0]?.name;
-      const duration = (req.query.duration as string | undefined) ?? "1D";
-      if (!exchangeName) {
-        res.status(400).json({ error: "No exchanges configured" });
-        return;
-      }
-
-      const cacheKey = `${exchangeName}|${String(duration).toUpperCase()}`;
-      const cached = pnlCacheByKey[cacheKey];
-      if (cached && Date.now() - cached.at < PNL_CACHE_MS) {
-        res.json(cached.data);
-        return;
-      }
-
-      const exchangeOptions = options.exchanges.find((e) => e.name === exchangeName);
-      if (!exchangeOptions) {
-        res.status(400).json({ error: `Exchange '${exchangeName}' not found in settings` });
-        return;
-      }
-
-      let exchange: Exchange;
-      if (exchangeOptions.socket) {
-        exchange = exchangeOptions.socket;
-      } else if (exchangeOptions.name === "binance") {
-        exchange = await startBinance(exchangeOptions, { silent: true });
-      } else if (exchangeOptions.name === "nonkyc") {
-        exchange = await startNonKYC(exchangeOptions, { silent: true });
-      } else if (exchangeOptions.name === "mexc") {
-        exchange = await startMexc(exchangeOptions, { silent: true });
-      } else if (exchangeOptions.name === "dextrade") {
-        exchange = await startDexTrade(exchangeOptions, { silent: true });
-      } else {
-        res.status(400).json({ error: `Exchange '${exchangeOptions.name}' not supported for PNL dashboard` });
-        return;
-      }
-
-      const symbols = exchangeOptions.symbols ?? [];
-      const summary: Array<{ symbol: string; trades: number; pnlPercentage: number }> = [];
-      const targetTimestamp = getTargetTimestamp(String(duration).toUpperCase());
-
-      for (const symbolOptions of symbols) {
-        try {
-          const symbolKey = toSymbolKey(symbolOptions.name);
-          const existing = exchangeOptions.tradeHistory?.[symbolKey];
-
-          let tradesInDuration: Trade[] = [];
-
-          if (Array.isArray(existing) && existing.length > 0) {
-            const tradesAfter = existing.filter((t) => t.time / 1000 >= targetTimestamp);
-            const tradesBefore = existing.filter((t) => t.time / 1000 < targetTimestamp);
-            const prev = tradesBefore[tradesBefore.length - 1];
-            tradesInDuration = prev ? [prev, ...tradesAfter] : tradesAfter;
-          } else {
-            // Fallback: only when tradeHistory isn't loaded yet for that symbol.
-            const tradeHistory = await getTradeHistory(exchange, symbolOptions.name);
-            const tradesAfter = tradeHistory.filter((t) => t.time / 1000 >= targetTimestamp);
-            const tradesBefore = tradeHistory.filter((t) => t.time / 1000 < targetTimestamp);
-            const prev = tradesBefore[tradesBefore.length - 1];
-            tradesInDuration = prev ? [prev, ...tradesAfter] : tradesAfter;
-          }
-
-          if (tradesInDuration.length < 2) {
-            summary.push({ symbol: symbolOptions.name, trades: tradesInDuration.length, pnlPercentage: 0 });
-            continue;
-          }
-
-          let pnlPercentage = 0;
-          for (let i = 1; i < tradesInDuration.length; i++) {
-            const olderTrade = tradesInDuration[i - 1];
-            const lastTrade = tradesInDuration[i];
-            let lastPNL = 0;
-            let commission = 0;
-            if (olderTrade.isBuyer) {
-              lastPNL = calculatePNLPercentageForLong(parseFloat(olderTrade.price), parseFloat(lastTrade.price));
-            } else {
-              lastPNL = calculatePNLPercentageForShort(parseFloat(olderTrade.price), parseFloat(lastTrade.price));
-            }
-
-            const olderCommission = parseFloat(String(olderTrade.commission ?? 0));
-            const lastCommission = parseFloat(String(lastTrade.commission ?? 0));
-            if (!Number.isNaN(olderCommission) && olderCommission > 0) {
-              commission += olderTrade.commissionAsset === "BNB" ? 0.075 : 0.1;
-            }
-            if (!Number.isNaN(lastCommission) && lastCommission > 0) {
-              commission += lastTrade.commissionAsset === "BNB" ? 0.075 : 0.1;
-            }
-
-            pnlPercentage += lastPNL - commission;
-          }
-
-          summary.push({
-            symbol: symbolOptions.name,
-            trades: tradesInDuration.length,
-            pnlPercentage: Number(pnlPercentage.toFixed(2)),
-          });
-        } catch (e) {
-          logger.error("Failed to calculate PNL for symbol", symbolOptions.name, e);
-          summary.push({ symbol: symbolOptions.name, trades: 0, pnlPercentage: 0 });
-        }
-      }
-
-      const out = {
-        exchange: exchangeOptions.name,
-        duration: String(duration).toUpperCase(),
-        summary,
-      };
-      pnlCacheByKey[cacheKey] = { at: Date.now(), data: out };
-      res.json(out);
-    } catch (e) {
-      logger.error("Error in /api/pnl", e);
-      res.status(500).json({ error: "Failed to calculate PNL", details: e instanceof Error ? e.message : String(e) });
+      logger.error("Error in /api/crypto/prices", e);
+      res.status(500).json({ error: "Hintojen haku epaonnistui." });
     }
   });
 
@@ -2633,17 +2835,23 @@ const webServer = async () => {
       logger.info(`Open Hoobot at http://localhost:${PORT}${isSimulateInstance ? " (simulaatio-istunto)" : ""}`);
       if (isSimulateInstance) {
         console.log(
-          "[simulate] Palvelin odottaa. Käynnistä ajo UI:ssa (Simulaatio → Run Simulation) tai POST /simulate/start.",
+          "[simulate] Palvelin odottaa. Käynnistä ajo UI:ssa (Simulaatio → Run Simulation) tai POST /simulate/start."
         );
-        console.log("[simulate] Eteneminen: SIM_PROGRESS_CONSOLE=false poistaa replay-rivit terminaalista.");
+        console.log(
+          "[simulate] Eteneminen: SIM_PROGRESS_CONSOLE=false poistaa replay-rivit terminaalista. " +
+            "Jos näyttö jumittaa idle-herätyksessä: prioriteetti on BELOW_NORMAL; heap 4GB (package.json)."
+        );
       }
       resolve();
     });
     server.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {
         console.error(
-          `[Hoobot] Portti ${PORT} on jo käytössä. Pysäytä vanha prosessi tai käytä PORT=5658 npm run simulate:start`,
+          `[Hoobot] Portti ${PORT} on jo käytössä. Pysäytä vanha prosessi tai käytä PORT=5658 npm run simulate:start`
         );
+        if (!isSimulateInstance) {
+          process.exit(1);
+        }
       }
       reject(err);
     });
@@ -2660,6 +2868,8 @@ const handleRejection = (reason: unknown) => {
     extra = reason;
   }
 
+  const transient = isTransientNetworkError(err);
+
   try {
     logToFile(
       "./logs/error.log",
@@ -2668,13 +2878,21 @@ const handleRejection = (reason: unknown) => {
           message: err.message,
           stack: err.stack,
           reason: extra,
+          transient,
         },
         null,
-        4,
-      ),
+        4
+      )
     );
   } catch {
     // ignore
+  }
+
+  if (transient) {
+    console.warn(
+      `[Hoobot] Verkko/WebSocket-virhe (botti jatkaa): ${err.message}`
+    );
+    return;
   }
 
   if (extra && typeof extra === "object") {
@@ -2692,12 +2910,28 @@ const handleUncaughtException = (reason: unknown) => {
 process.on("unhandledRejection", handleRejection);
 process.on("uncaughtException", handleUncaughtException);
 
-if (process.env.NOWEBUI === "true") {
-  hoobot().catch(handleRejection);
-} else {
+void (async () => {
+  if (process.env.SIMULATE !== "true") {
+    const lockPort = Number(process.env.PORT || 5656);
+    if (!(await acquireLiveProcessLock(lockPort))) {
+      process.exit(1);
+    }
+  }
+
+  if (process.env.NOWEBUI === "true") {
+    hoobot().catch(handleRejection);
+    return;
+  }
+
   // Älä autokäynnistä live-kauppaa simulaatio-istunnossa (SIMULATE=true, oma portti)
   if (options.running && process.env.SIMULATE !== "true") {
     hoobot().catch(handleRejection);
   }
-  webServer().catch(handleRejection);
-}
+  webServer().catch((err: unknown) => {
+    handleRejection(err);
+    const code = err && typeof err === "object" && "code" in err ? (err as NodeJS.ErrnoException).code : undefined;
+    if (code === "EADDRINUSE" && process.env.SIMULATE !== "true") {
+      process.exit(1);
+    }
+  });
+})();

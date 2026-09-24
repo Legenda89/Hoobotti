@@ -12,16 +12,25 @@
 
 # Logging
 /logs/*
-
-# File level blocking
 /blocks/*
 
-# Simulation
+# Simulation data (heavy)
 /candlestore/*
 /simulation/*
 
-# Configuration
-/settings/hoobot-options-simulate.json
+# Local secrets & runtime (esimerkkitiedostot versionhallinnassa)
+.env
 /settings/hoobot-options.json
+/settings/hoobot-options-simulate.json
 /settings/binance.json
 /settings/xeggex.json
+/settings/*-runtime.json
+/settings/force.json
+/settings/hoobot-live.pid
+/settings/trade-triggers.json
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

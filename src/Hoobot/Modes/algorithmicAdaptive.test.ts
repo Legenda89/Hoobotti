@@ -3,6 +3,7 @@ import {
   agreementEaseFromWait,
   agreementVolatilityDelta,
   atrVolatilityMultiplier,
+  candlesSinceLastTrade,
   detectVoteConflict,
   resolveAlgorithmicAdaptiveConfig,
   resolveEffectiveAgreement,
@@ -48,6 +49,46 @@ describe("algorithmicAdaptive", () => {
     } as never);
     expect(agreementEaseFromWait(50, "BUY", cfg)).toBe(0);
     expect(agreementEaseFromWait(150, "BUY", cfg)).toBeLessThan(0);
+  });
+
+  it("counts wait from simulationSessionStartMs when tradeHistory is empty", () => {
+    const waited = candlesSinceLastTrade(
+      { name: "BTC/EUR", timeframes: ["3m"] } as never,
+      1_000_000 + 288 * 180_000,
+      {
+        tradeHistory: {},
+        simulationSessionStartMs: 1_000_000,
+      } as never
+    );
+    expect(waited).toBe(288);
+    expect(
+      candlesSinceLastTrade(
+        { name: "BTC/EUR", timeframes: ["3m"] } as never,
+        1_000_000 + 1000,
+        { tradeHistory: {} } as never
+      )
+    ).toBe(0);
+  });
+
+  it("applies ease in resolveEffectiveAgreement before first trade (sim session)", () => {
+    const cfg = resolveAlgorithmicAdaptiveConfig({
+      name: "X",
+      algorithmicAdaptive: { maxCashCandles: 100, agreementEaseMax: 10, conflictEnabled: false },
+    } as never);
+    const start = 1_000_000;
+    const r = resolveEffectiveAgreement({
+      baseAgreement: 70,
+      volMult: 1,
+      cfg,
+      next: "BUY",
+      trend: "LONG",
+      directions: { BUY: 60, SELL: 10 },
+      closeTime: start + 150 * 180_000,
+      symbolOptions: { name: "BTC/EUR", agreement: 70, timeframes: ["3m"] } as never,
+      exchangeOptions: { tradeHistory: {}, simulationSessionStartMs: start } as never,
+    });
+    expect(r.ease).toBeLessThan(0);
+    expect(r.effective).toBeLessThan(70);
   });
 
   it("scales takeProfit minimum with volMult", () => {

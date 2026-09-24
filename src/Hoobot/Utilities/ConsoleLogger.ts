@@ -1,5 +1,31 @@
-import fs from "fs";
-import { logToFile } from "./LogToFile";
+/* =====================================================================
+* Hoobot - Proprietary License
+* Copyright (c) 2023 Hoosat Oy. All rights reserved.
+*
+* Redistribution and use in source and binary forms, with or without
+* modification, are not permitted without prior written permission
+* from Hoosat Oy. Unauthorized reproduction, copying, or use of this
+* software, in whole or in part, is strictly prohibited. All 
+* modifications in source or binary must be submitted to Hoosat Oy in source format.
+*
+* THIS SOFTWARE IS PROVIDED BY HOOSAT OY "AS IS" AND ANY EXPRESS OR
+* IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+* ARE DISCLAIMED. IN NO EVENT SHALL HOOSAT OY BE LIABLE FOR ANY DIRECT,
+* INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+* SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+* HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+* STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+* ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+* OF THE POSSIBILITY OF SUCH DAMAGE.
+*
+* The user of this software uses it at their own risk. Hoosat Oy shall
+* not be liable for any losses, damages, or liabilities arising from
+* the use of this software.
+* ===================================================================== */
+import fs from 'fs';
+import { logToFile } from './LogToFile';
 export interface ConsoleLogger {
   push: (key: string, value: any | any[]) => ConsoleLogger;
   print: (color?: string) => void;
@@ -10,6 +36,7 @@ export interface ConsoleLogger {
 interface consoleData {
   [key: string]: any | any[];
 }
+
 
 const reset = "\x1b[0m";
 const red = "\x1b[31m";
@@ -43,17 +70,17 @@ export const consoleLogger = (): ConsoleLogger => {
   };
   const print = (color?: string) => {
     flushDebugLinesToFile();
-    if (color == "red") {
+    if(color == "red") {
       console.log(`${red}${JSON.stringify(DisplayData, null, 4)}${reset}`);
-    } else if (color == "green") {
+    } else if(color == "green") {
       console.log(`${green}${JSON.stringify(DisplayData, null, 4)}${reset}`);
-    } else if (color == "yellow") {
+    } else if(color == "yellow") {
       console.log(`${yellow}${JSON.stringify(DisplayData, null, 4)}${reset}`);
-    } else if (color == "blue") {
+    } else if(color == "blue") {
       console.log(`${blue}${JSON.stringify(DisplayData, null, 4)}${reset}`);
-    } else if (color == "magenta") {
+    } else if(color == "magenta") {
       console.log(`${magenta}${JSON.stringify(DisplayData, null, 4)}${reset}`);
-    } else if (color == "cyan") {
+    } else if(color == "cyan") {
       console.log(`${cyan}${JSON.stringify(DisplayData, null, 4)}${reset}`);
     } else {
       console.log(JSON.stringify(DisplayData, null, 4));
@@ -85,7 +112,7 @@ export const consoleLogger = (): ConsoleLogger => {
     const immutableData: consoleData = {};
     for (const key in data) {
       const value = data[key];
-      if (typeof value === "object" && value !== null) {
+      if (typeof value === 'object' && value !== null) {
         immutableData[key] = createImmutableData(value as consoleData);
       } else {
         immutableData[key] = value;

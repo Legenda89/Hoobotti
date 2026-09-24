@@ -1,0 +1,71 @@
+{
+  "simulationHistoryYears": 1,
+  "includeBaseline": true,
+  "maxVariants": 2000,
+  "axes": [
+    {
+      "name": "stopLoss.pnl",
+      "range": { "from": -3, "to": 0, "step": 0.5 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "stopLoss": { "enabled": true, "stopTrading": false, "pnl": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "takeProfit.minimum",
+      "range": { "from": 0.5, "to": 4, "step": 0.5 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "minimum": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "takeProfit.drop",
+      "range": { "from": 0.1, "to": 0.3, "step": 0.05 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "drop": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "takeProfit.dropMinUnrealized",
+      "range": { "from": 0.1, "to": 0.3, "step": 0.05 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "dropMinUnrealized": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

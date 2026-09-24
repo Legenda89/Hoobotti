@@ -1,3 +1,30 @@
+/* =====================================================================
+ * Hoobot - Proprietary License
+ * Copyright (c) 2023 Hoosat Oy. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are not permitted without prior written permission
+ * from Hoosat Oy. Unauthorized reproduction, copying, or use of this
+ * software, in whole or in part, is strictly prohibited. All
+ * modifications in source or binary must be submitted to Hoosat Oy in source format.
+ *
+ * THIS SOFTWARE IS PROVIDED BY HOOSAT OY "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL HOOSAT OY BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * The user of this software uses it at their own risk. Hoosat Oy shall
+ * not be liable for any losses, damages, or liabilities arising from
+ * the use of this software.
+ * ===================================================================== */
+
 import { Orderbook } from "../Exchanges/Orderbook";
 import { ExchangeOptions, SymbolOptions, getSecondsFromInterval, toSymbolKey } from "../Utilities/Args";
 import { ConsoleLogger } from "../Utilities/ConsoleLogger";
@@ -11,7 +38,10 @@ import {
   readForceSkip,
 } from "../Exchanges/Trades";
 import { Candlestick } from "../Exchanges/Candlesticks";
-import { reverseSign } from "../Modes/Algorithmic";
+import { resolveEffectiveProfitMinimums } from "../Trading/profitMinimums";
+import { effectiveStopLossPnl, type StopLossAtrConfig } from "../Trading/stopLossAtr";
+import { applyFeeAdjustmentToPnl } from "../Trading/tradeGates";
+import { resolveOpenPositionEntryTrade } from "../Trading/positionState";
 import { Filter } from "../Exchanges/Filters";
 import {
   getTakeProfitRuntimeState,
@@ -24,10 +54,6 @@ import {
 export { resetTakeProfitRuntimeForSymbol };
 
 const sleep = async (ms: number) => await new Promise((r) => setTimeout(r, ms));
-const applyRoundTripFeeToPnl = (pnl: number, feePerTradePct?: number): number => {
-  const fee = (feePerTradePct ?? 0) * 2;
-  return pnl - fee;
-};
 
 type TakeProfitConfig = {
   enabled?: boolean;
@@ -130,13 +156,17 @@ const meetsTakeProfitLimitFloor = (unrealizedPNL: number, tpCfg?: TakeProfitConf
 export const evaluateTakeProfitTrailing = (
   unrealizedPNL: number,
   tpCfg: TakeProfitConfig | undefined,
-  runtime: TakeProfitRuntimeState,
+  runtime: TakeProfitRuntimeState
 ): boolean => {
   const currentMaxPNL = runtime.peakUnrealizedPct;
   const cfgDrop = tpCfg?.drop ?? 0;
   const dropFromPeak = currentMaxPNL - unrealizedPNL;
   const shouldTrailing =
-    runtime.armed && cfgDrop > 0 && unrealizedPNL > 0 && unrealizedPNL < currentMaxPNL && dropFromPeak >= cfgDrop;
+    runtime.armed &&
+    cfgDrop > 0 &&
+    unrealizedPNL > 0 &&
+    unrealizedPNL < currentMaxPNL &&
+    dropFromPeak >= cfgDrop;
   return shouldTrailing && meetsTakeProfitLimitFloor(unrealizedPNL, tpCfg);
 };
 
@@ -144,7 +174,7 @@ export const evaluateTakeProfitTrailing = (
 export const meetsTakeProfitLimitForAction = (
   unrealizedPNL: number,
   symbolOptions: SymbolOptions,
-  next: string,
+  next: string
 ): boolean => {
   return meetsTakeProfitLimitFloor(unrealizedPNL, getTakeProfitConfigForNext(symbolOptions, next));
 };
@@ -153,7 +183,7 @@ export const meetsTakeProfitLimitForAction = (
 export const recordTakeProfitPeakOnOrder = (
   symbolOptions: SymbolOptions,
   next: string,
-  unrealizedPNL: number,
+  unrealizedPNL: number
 ): void => {
   const tpCfg = getTakeProfitConfigForNext(symbolOptions, next);
   if (!tpCfg || (tpCfg.currentMaxSource ?? "update") !== "trade") return;
@@ -203,6 +233,10 @@ export const syncTakeProfitRuntimeFromConfig = (symbolOptions: SymbolOptions): v
   }
 };
 
+export type ProfitSignalContext = {
+  atrPct?: number;
+};
+
 export const calculateProfitSignals = async (
   newTrend: string,
   next: string,
@@ -211,13 +245,14 @@ export const calculateProfitSignals = async (
   unrealizedPNL: number,
   closeTime: number,
   symbolOptions: SymbolOptions,
+  ctx?: ProfitSignalContext
 ) => {
   let check = "HOLD";
   const tpCfg = getTakeProfitConfigForNext(symbolOptions, next);
 
-  // Calculate time since the last trade
+  // Calculate time since the last trade (fractional hours — Math.ceil kiristi SL:ää heti 1. minuutilla)
   const timeSinceLastTrade = (closeTime - lastTrade.time) / (1000 * 60 * 60); // Time in hours
-  const hoursSinceLastTrade = Math.ceil(timeSinceLastTrade);
+  const hoursSinceLastTrade = Math.max(0, timeSinceLastTrade);
 
   const symbolKey = toSymbolKey(symbolOptions.name);
   const leg = resolveTakeProfitLeg(symbolOptions, next);
@@ -226,9 +261,16 @@ export const calculateProfitSignals = async (
 
   const stopCfg = getStopLossConfigForNext(symbolOptions, next);
   const stopLossAging = (stopCfg?.agingPerHour ?? 0) * hoursSinceLastTrade;
-  // STOP_LOSS is absolute unrealized PNL % threshold (e.g. pnl=-5 means exit when unrealizedPNL <= -5).
-  // Aging moves the threshold over time by adding stopLossAging.
-  let stopLoss = (stopCfg?.pnl ?? 0) + stopLossAging;
+  const atrCfg: StopLossAtrConfig | undefined = stopCfg
+    ? {
+        atrScale: stopCfg.atrScale,
+        atrMultiplier: stopCfg.atrMultiplier,
+        atrMin: stopCfg.atrMin,
+        atrMax: stopCfg.atrMax,
+      }
+    : undefined;
+  // STOP_LOSS is absolute unrealized PNL % threshold; aging moves threshold over time.
+  let stopLoss = effectiveStopLossPnl(stopCfg?.pnl ?? 0, ctx?.atrPct, atrCfg) + stopLossAging;
 
   // Ensure stopLoss is not positive
   if (stopLoss > 0) {
@@ -263,10 +305,9 @@ export const calculateProfitSignals = async (
     }
   }
 
-  const baseMinSell = symbolOptions.profit?.minimumSell ?? 0;
-  const baseMinBuy = symbolOptions.profit?.minimumBuy ?? 0;
-  const minProfitSell = effectiveTrend === "SHORT" ? baseMinBuy : baseMinSell;
-  const minProfitBuy = effectiveTrend === "SHORT" ? baseMinSell : baseMinBuy;
+  const profitMins = resolveEffectiveProfitMinimums(symbolOptions, { effectiveTrend });
+  const minProfitSell = profitMins.minSell;
+  const minProfitBuy = profitMins.minBuy;
 
   const shouldTakeProfit = evaluateTakeProfitTrailing(unrealizedPNL, tpCfg, runtime);
 
@@ -282,7 +323,7 @@ export const calculateProfitSignals = async (
         check = "TAKE_PROFIT";
       } else if (stopLossEnabled && shouldStopLoss) {
         check = "STOP_LOSS";
-      } else if (unrealizedPNL < minProfitSell && (symbolOptions.profit?.minimumSell ?? 0) !== 0) {
+      } else if (unrealizedPNL < minProfitSell && minProfitSell !== 0) {
         check = "HOLD";
       } else {
         check = "SELL";
@@ -292,7 +333,7 @@ export const calculateProfitSignals = async (
         check = "TAKE_PROFIT";
       } else if (stopLossEnabled && shouldStopLoss) {
         check = "STOP_LOSS";
-      } else if (unrealizedPNL < minProfitBuy && (symbolOptions.profit?.minimumBuy ?? 0) !== 0) {
+      } else if (unrealizedPNL < minProfitBuy && minProfitBuy !== 0) {
         check = "HOLD";
       } else {
         check = "BUY";
@@ -302,7 +343,7 @@ export const calculateProfitSignals = async (
         check = "TAKE_PROFIT";
       } else if (stopLossEnabled && shouldStopLoss) {
         check = "STOP_LOSS";
-      } else if (unrealizedPNL < minProfitSell && (symbolOptions.profit?.minimumSell ?? 0) !== 0) {
+      } else if (unrealizedPNL < minProfitSell && minProfitSell !== 0) {
         check = "HOLD";
       } else {
         check = "SELL";
@@ -314,7 +355,7 @@ export const calculateProfitSignals = async (
         check = "TAKE_PROFIT";
       } else if (stopLossEnabled && shouldStopLoss) {
         check = "STOP_LOSS";
-      } else if (unrealizedPNL < minProfitSell && (symbolOptions.profit?.minimumSell ?? 0) !== 0) {
+      } else if (unrealizedPNL < minProfitSell && minProfitSell !== 0) {
         check = "HOLD";
       } else {
         check = "SELL";
@@ -324,7 +365,7 @@ export const calculateProfitSignals = async (
         check = "TAKE_PROFIT";
       } else if (stopLossEnabled && shouldStopLoss) {
         check = "STOP_LOSS";
-      } else if (unrealizedPNL < minProfitBuy && (symbolOptions.profit?.minimumBuy ?? 0) !== 0) {
+      } else if (unrealizedPNL < minProfitBuy && minProfitBuy !== 0) {
         check = "HOLD";
       } else {
         check = "BUY";
@@ -336,13 +377,9 @@ export const calculateProfitSignals = async (
       check = "TAKE_PROFIT";
     } else if (stopLossEnabled && shouldStopLoss) {
       check = "STOP_LOSS";
-    } else if (next === "SELL" && unrealizedPNL >= minProfitSell) {
+    } else if (next === "SELL" && (unrealizedPNL >= minProfitSell || minProfitSell === 0)) {
       check = "SELL";
-    } else if (next === "BUY" && unrealizedPNL >= minProfitBuy) {
-      check = "BUY";
-    } else if (next === "SELL" && symbolOptions.profit?.minimumSell == 0) {
-      check = "SELL";
-    } else if (next === "BUY" && symbolOptions.profit?.minimumBuy == 0) {
+    } else if (next === "BUY" && (unrealizedPNL >= minProfitBuy || minProfitBuy === 0)) {
       check = "BUY";
     }
   }
@@ -401,11 +438,49 @@ export const calculateProfitSignals = async (
     check = "HOLD";
   }
 
+  // Time-stop: free capital after maxHours even if red. STALE_EXIT = profit override (scout/gates).
+  const staleMaxHours = Number(symbolOptions.forcedExit?.maxHours);
+  if (
+    forceExitEnabled &&
+    Number.isFinite(staleMaxHours) &&
+    staleMaxHours > 0 &&
+    timeSinceLastTrade >= staleMaxHours &&
+    check !== "TAKE_PROFIT" &&
+    check !== "TAKE_PROFIT_FORCE" &&
+    check !== "STOP_LOSS" &&
+    check !== "STALE_EXIT"
+  ) {
+    const forcedDirection = lastTrade.isBuyer ? "SELL" : "BUY";
+    if (next === forcedDirection || next === "BOTH") {
+      check = "STALE_EXIT";
+    }
+  }
+
+  if (check === "STOP_LOSS") {
+    markStopLossHit(symbolOptions, next);
+  }
+
   return {
     check,
     takeProfit,
     stopLoss,
   };
+};
+
+/** Aseta stopLoss.hit kun SL-signaali laukeaa (sim stopTrading + live seuranta). */
+export const markStopLossHit = (symbolOptions: SymbolOptions, next: string): void => {
+  const useBuySl = next === "BUY" && symbolOptions.stopLossBuy?.enabled === true;
+  if (useBuySl) {
+    if (!symbolOptions.stopLossBuy) {
+      symbolOptions.stopLossBuy = { enabled: true, pnl: -1, agingPerHour: 0, hit: true };
+    } else {
+      symbolOptions.stopLossBuy.hit = true;
+    }
+    return;
+  }
+  if (symbolOptions.stopLoss) {
+    symbolOptions.stopLoss.hit = true;
+  }
 };
 
 /** True when we are allowed to update takeProfit.current (currentMax) this tick. */
@@ -425,6 +500,7 @@ export const checkProfitSignals = async (
   ExchangeOptions: ExchangeOptions,
   symbolOptions: SymbolOptions,
   isFinalCandle: boolean = true,
+  ctx?: ProfitSignalContext
 ) => {
   let check = "HOLD";
   let lastPNL: number = 0;
@@ -433,6 +509,7 @@ export const checkProfitSignals = async (
   const th = ExchangeOptions.tradeHistory?.[symbolKey];
   if (th?.length > 0) {
     const lastTrade = th[th.length - 1];
+    const entryTrade = resolveOpenPositionEntryTrade(th, symbolKey) ?? lastTrade;
     // previous = realized PNL % of last closed round-trip (olderTrade -> lastTrade)
     if (th.length > 1) {
       const olderTrade = th[th.length - 2];
@@ -442,32 +519,32 @@ export const checkProfitSignals = async (
         lastPNL = calculatePNLPercentageForShort(parseFloat(olderTrade.price), parseFloat(lastTrade.price));
       }
     }
-    if (lastTrade.isBuyer) {
+    if (entryTrade.isBuyer) {
       // selling
       const orderBookAsks = Object.keys(orderBook.asks)
         .map((price) => parseFloat(price))
         .sort((a, b) => a - b);
       unrealizedPNL = calculateUnrealizedPNLPercentageForLong(
-        parseFloat(lastTrade.qty),
-        parseFloat(lastTrade.price),
-        orderBookAsks[0],
+        parseFloat(entryTrade.qty),
+        parseFloat(entryTrade.price),
+        orderBookAsks[0]
       );
-    } else if (!lastTrade.isBuyer) {
+    } else if (!entryTrade.isBuyer) {
       // buying
       const orderBookBids = Object.keys(orderBook.bids)
         .map((price) => parseFloat(price))
         .sort((a, b) => b - a);
       unrealizedPNL = calculateUnrealizedPNLPercentageForShort(
-        parseFloat(lastTrade.qty),
-        parseFloat(lastTrade.price),
-        orderBookBids[0],
+        parseFloat(entryTrade.qty),
+        parseFloat(entryTrade.price),
+        orderBookBids[0]
       );
     }
-    unrealizedPNL = applyRoundTripFeeToPnl(unrealizedPNL, symbolOptions.tradeFeePercentage);
-    if (lastTrade.isBuyer && next === "BUY") {
-      unrealizedPNL = reverseSign(unrealizedPNL);
-    } else if (!lastTrade.isBuyer && next === "SELL") {
-      unrealizedPNL = reverseSign(unrealizedPNL);
+    unrealizedPNL = applyFeeAdjustmentToPnl(unrealizedPNL, symbolOptions.tradeFeePercentage, entryTrade);
+    if (entryTrade.isBuyer && next === "BUY") {
+      unrealizedPNL = -unrealizedPNL;
+    } else if (!entryTrade.isBuyer && next === "SELL") {
+      unrealizedPNL = -unrealizedPNL;
     }
     const tpCfg = getTakeProfitConfigForNext(symbolOptions, next);
     const leg = resolveTakeProfitLeg(symbolOptions, next);
@@ -485,11 +562,12 @@ export const checkProfitSignals = async (
     const signals = await calculateProfitSignals(
       trend,
       next,
-      lastTrade,
+      entryTrade,
       lastPNL,
       unrealizedPNL,
       closeTime,
       symbolOptions,
+      ctx
     );
     check = signals.check;
     consoleLogger.push("PNL%", {
@@ -529,6 +607,7 @@ export const checkProfitSignalsFromCandlesticks = async (
   ExchangeOptions: ExchangeOptions,
   symbolOptions: SymbolOptions,
   isFinalCandle: boolean = true,
+  ctx?: ProfitSignalContext
 ) => {
   let check = "HOLD";
   let lastPNL: number = 0;
@@ -538,6 +617,7 @@ export const checkProfitSignalsFromCandlesticks = async (
   const thC = ExchangeOptions.tradeHistory?.[symbolKeyC];
   if (thC?.length > 0) {
     const lastTrade = thC[thC.length - 1];
+    const entryTrade = resolveOpenPositionEntryTrade(thC, symbolKeyC) ?? lastTrade;
     if (thC.length > 1) {
       const olderTrade = thC[thC.length - 2];
       if (olderTrade.isBuyer) {
@@ -547,24 +627,24 @@ export const checkProfitSignalsFromCandlesticks = async (
       }
     }
     const close = candlesticks[candlesticks.length - 1].close;
-    if (lastTrade.isBuyer === true) {
+    if (entryTrade.isBuyer === true) {
       unrealizedPNL = calculateUnrealizedPNLPercentageForLong(
-        parseFloat(lastTrade.qty),
-        parseFloat(lastTrade.price),
-        close,
+        parseFloat(entryTrade.qty),
+        parseFloat(entryTrade.price),
+        close
       );
     } else {
       unrealizedPNL = calculateUnrealizedPNLPercentageForShort(
-        parseFloat(lastTrade.qty),
-        parseFloat(lastTrade.price),
-        close,
+        parseFloat(entryTrade.qty),
+        parseFloat(entryTrade.price),
+        close
       );
     }
-    unrealizedPNL = applyRoundTripFeeToPnl(unrealizedPNL, symbolOptions.tradeFeePercentage);
-    if (lastTrade.isBuyer && next === "BUY") {
-      unrealizedPNL = reverseSign(unrealizedPNL);
-    } else if (!lastTrade.isBuyer && next === "SELL") {
-      unrealizedPNL = reverseSign(unrealizedPNL);
+    unrealizedPNL = applyFeeAdjustmentToPnl(unrealizedPNL, symbolOptions.tradeFeePercentage, entryTrade);
+    if (entryTrade.isBuyer && next === "BUY") {
+      unrealizedPNL = -unrealizedPNL;
+    } else if (!entryTrade.isBuyer && next === "SELL") {
+      unrealizedPNL = -unrealizedPNL;
     }
     const tpCfg = getTakeProfitConfigForNext(symbolOptions, next);
     const leg = resolveTakeProfitLeg(symbolOptions, next);
@@ -582,11 +662,12 @@ export const checkProfitSignalsFromCandlesticks = async (
     const signals = await calculateProfitSignals(
       trend,
       next,
-      lastTrade,
+      entryTrade,
       lastPNL,
       unrealizedPNL,
       closeTime,
       symbolOptions,
+      ctx
     );
     check = signals.check;
     consoleLogger.push("PNL%", {

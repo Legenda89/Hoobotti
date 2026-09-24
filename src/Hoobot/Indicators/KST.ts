@@ -1,3 +1,30 @@
+/* =====================================================================
+ * Hoobot - Proprietary License
+ * Copyright (c) 2023 Hoosat Oy. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are not permitted without prior written permission
+ * from Hoosat Oy. Unauthorized reproduction, copying, or use of this
+ * software, in whole or in part, is strictly prohibited. All
+ * modifications in source or binary must be submitted to Hoosat Oy in source format.
+ *
+ * THIS SOFTWARE IS PROVIDED BY HOOSAT OY "AS IS" AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL HOOSAT OY BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * The user of this software uses it at their own risk. Hoosat Oy shall
+ * not be liable for any losses, damages, or liabilities arising from
+ * the use of this software.
+ * ===================================================================== */
+
 import { Candlestick } from "../Exchanges/Candlesticks";
 import { calculateSMA } from "./SMA";
 
@@ -10,7 +37,7 @@ export const calculateROC = (candles: Candlestick[], period: number, source: str
       return ((value - prevValue) / prevValue) * 100;
     })
     .slice(period)
-    .map((roc) => ({ close: roc }) as Candlestick);
+    .map((roc) => ({ close: roc } as Candlestick));
 };
 
 export const calculateKST = (
@@ -24,7 +51,7 @@ export const calculateKST = (
   SmaLen3: number,
   SmaLen4: number,
   SigLen: number,
-  source: string = "close",
+  source: string = "close"
 ): { kst: number[]; signalLine: number[] } => {
   const smaRoc1 = calculateSMA(calculateROC(candles, RocLen1, source), SmaLen1, "close");
   const smaRoc2 = calculateSMA(calculateROC(candles, RocLen2, source), SmaLen2, "close");
@@ -38,7 +65,7 @@ export const calculateKST = (
   const signalLine = calculateSMA(
     [{ close: kst[0] } as Candlestick, ...(kst.map((k) => ({ close: k })) as Candlestick[])],
     SigLen,
-    "close",
+    "close"
   ).slice(1);
   return { kst, signalLine };
 };
