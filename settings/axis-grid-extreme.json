@@ -1,0 +1,92 @@
+{
+  "simulationHistoryYears": 1,
+  "includeBaseline": true,
+  "maxVariants": 21000,
+  "axes": [
+    {
+      "name": "extreme.sellProfitQuote",
+      "range": { "from": 2.5, "to": 7.5, "step": 0.5 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "extreme",
+            "symbols": [
+              {
+                "extreme": { "sellProfitQuote": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "extreme.buyMoveQuote",
+      "range": { "from": 3.5, "to": 9.5, "step": 0.5 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "extreme",
+            "symbols": [
+              {
+                "extreme": { "buyMoveQuote": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "extreme.idleForceDays",
+      "range": { "from": 3, "to": 8, "step": 1 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "extreme",
+            "symbols": [
+              {
+                "extreme": { "idleForceDays": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "extreme.maxCashCandles",
+      "range": { "from": 192, "to": 576, "step": 96 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "extreme",
+            "symbols": [
+              {
+                "extreme": { "maxCashCandles": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "extreme.maxLongCandles",
+      "range": { "from": 128, "to": 416, "step": 96 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "extreme",
+            "symbols": [
+              {
+                "extreme": { "maxLongCandles": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

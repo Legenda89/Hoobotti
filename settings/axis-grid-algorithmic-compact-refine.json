@@ -1,0 +1,126 @@
+{
+  "simulationHistoryYears": 0.5,
+  "includeBaseline": true,
+  "maxVariants": 500,
+  "axes": [
+    {
+      "name": "takeProfit.minimum",
+      "range": { "from": 1.5, "to": 2.5, "step": 0.5 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "minimum": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "takeProfit.drop",
+      "range": { "from": 0.08, "to": 0.12, "step": 0.02 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "drop": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "stopLoss.pnl",
+      "range": { "from": -4, "to": -3, "step": 0.5 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "stopLoss": { "enabled": true, "stopTrading": false, "pnl": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "takeProfit.limit",
+      "range": { "from": 0.75, "to": 1.25, "step": 0.5 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "limit": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "takeProfitBuy.minimum",
+      "range": { "from": 3.5, "to": 4.5, "step": 1 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "takeProfitBuy": { "enabled": true, "minimum": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "algorithmicAdaptive.maxCashCandles",
+      "range": { "from": 0, "to": 288, "step": 288 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "algorithmicAdaptive": { "maxCashCandles": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "algorithmicAdaptive.maxLongCandles",
+      "range": { "from": 0, "to": 192, "step": 192 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "algorithmicAdaptive": { "maxLongCandles": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

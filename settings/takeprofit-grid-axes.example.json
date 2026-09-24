@@ -1,0 +1,138 @@
+{
+  "simulationHistoryYears": 1,
+  "includeBaseline": true,
+  "maxVariants": 500,
+  "axes": [
+    {
+      "name": "tp-minimum",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "takeProfit": { "enabled": true, "minimum": 0.3 }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "takeProfit": { "enabled": true, "minimum": 0.4 }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "takeProfit": { "enabled": true, "minimum": 0.5 }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tp-drop",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "takeProfit": { "enabled": true, "drop": 0.1 }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "takeProfit": { "enabled": true, "drop": 0.15 }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "forcedafter",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "takeProfit": {
+                    "enabled": true,
+                    "forceAfterCandles": 2,
+                    "forceAfterDrop": 0.15,
+                    "forceMinProfit": 3
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "forcedexit",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "forcedExit": {
+                    "enabled": true,
+                    "candles": 2,
+                    "change": 0.15,
+                    "minProfit": 2
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tp-limit",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "takeProfit": { "enabled": true, "limit": 0.15 }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

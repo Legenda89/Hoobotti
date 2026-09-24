@@ -1,0 +1,81 @@
+{
+  "simulationHistoryYears": 1,
+  "includeBaseline": true,
+  "maxVariants": 800,
+  "axes": [
+    {
+      "name": "profit.minimumSell",
+      "range": { "from": 0.1, "to": 0.3, "step": 0.05 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "profit": { "enabled": true, "minimumSell": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "algorithmicAdaptive.maxCashCandles",
+      "range": { "from": 192, "to": 384, "step": 96 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "algorithmicAdaptive": {
+                  "enabled": true,
+                  "maxCashCandles": "$value"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "algorithmicAdaptive.trendCounterPenalty",
+      "range": { "from": 8, "to": 14, "step": 3 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "algorithmicAdaptive": {
+                  "enabled": true,
+                  "trendCounterPenalty": "$value"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "takeProfit.limit",
+      "range": { "from": 0.15, "to": 0.3, "step": 0.05 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "limit": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# Build
+/build
+/build-ts
+/build-dev
+
+# Logging
+/logs/*
+/blocks/*
+
+# Simulation data (heavy)
+/candlestore/*
+/simulation/*
+
+# Local secrets & runtime (esimerkkitiedostot versionhallinnassa)
+.env
+/settings/hoobot-options.json
+/settings/hoobot-options-simulate.json
+/settings/binance.json
+/settings/xeggex.json
+/settings/*-runtime.json
+/settings/force.json
+/settings/hoobot-live.pid
+/settings/trade-triggers.json
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

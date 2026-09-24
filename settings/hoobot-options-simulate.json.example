@@ -1,0 +1,858 @@
+{
+  "debug": false,
+  "dryRun": false,
+  "startTime": 1787936068658,
+  "license": "",
+  "simulationHistoryYears": 0.25,
+  "discord": {
+    "enabled": false,
+    "token": "",
+    "applicationId": "1181882860144168980",
+    "serverId": "1062417255914295376",
+    "channelId": "1133114701136547961"
+  },
+  "discordSecondary": {
+    "enabled": false,
+    "token": "",
+    "applicationId": "1477385507909533716",
+    "serverId": "1152589822049914920",
+    "channelId": "1402510276414279801"
+  },
+  "exchanges": [
+    {
+      "name": "binance",
+      "key": "",
+      "secret": "",
+      "mode": "algorithmic",
+      "console": "trade",
+      "symbols": [
+        {
+          "enabled": true,
+          "name": "BTC/EUR",
+          "timeframes": [
+            "5m",
+            "3m"
+          ],
+          "agreement": 60,
+          "source": "close",
+          "trend": {
+            "enabled": true,
+            "timeframe": "4h",
+            "ema": {
+              "short": 9,
+              "long": 21
+            }
+          },
+          "gridOrderSize": 0,
+          "gridRebalance": false,
+          "gridLevels": 0,
+          "gridRange": {
+            "upper": 0,
+            "lower": 0
+          },
+          "periodicQuantity": 10,
+          "periodicInterval": 60,
+          "profit": {
+            "enabled": true,
+            "minimumSell": 0.3,
+            "minimumBuy": 0.5
+          },
+          "growingMax": {
+            "buy": 0,
+            "sell": 0
+          },
+          "simulationBuyAmountQuote": 100,
+          "liveOrderExecution": {
+            "buy": "limit",
+            "sell": "limit"
+          },
+          "blockConsecutiveLoss": {
+            "enabled": true,
+            "skipEntries": 1,
+            "cooldownMinutes": 20,
+            "cooldownAfterStopLossMinutes": 30
+          },
+          "tradeRateLimit": {
+            "enabled": true,
+            "maxTradesPerDay": 8,
+            "minMinutesBetweenEntries": 18
+          },
+          "closePercentage": 0.3,
+          "maximumAgeOfOrder": 6,
+          "tradeFeePercentage": 0.1,
+          "stopLoss": {
+            "enabled": true,
+            "stopTrading": false,
+            "pnl": -7,
+            "agingPerHour": 0,
+            "hit": false,
+            "atrScale": true,
+            "atrMultiplier": 2,
+            "atrMin": 0.5,
+            "atrMax": 3
+          },
+          "stopLossBuy": {
+            "enabled": true,
+            "pnl": -1.5,
+            "agingPerHour": 0,
+            "atrScale": true,
+            "atrMultiplier": 2,
+            "atrMin": 0.5,
+            "atrMax": 2
+          },
+          "takeProfit": {
+            "enabled": true,
+            "limit": 0.5,
+            "minimum": 0.5,
+            "drop": 0.5,
+            "currentMaxSource": "update",
+            "forceAfterEnabled": false,
+            "forceAfterCandles": 1,
+            "forceAfterDrop": 0.2,
+            "forceMinProfit": 0.5,
+            "current": 0,
+            "partialClose": {
+              "enabled": true,
+              "fraction": 0.5
+            }
+          },
+          "takeProfitBuy": {
+            "enabled": true,
+            "minimum": 0.5,
+            "drop": 0.5,
+            "currentMaxSource": "update",
+            "forceAfterEnabled": false,
+            "forceAfterCandles": 1,
+            "forceAfterDrop": 0.2,
+            "forceMinProfit": 0.5,
+            "current": 0,
+            "limit": 0.5,
+            "partialClose": {
+              "enabled": true,
+              "fraction": 0.5
+            }
+          },
+          "forcedExit": {
+            "enabled": true,
+            "change": 0.2,
+            "minProfit": 0.55,
+            "candles": 24,
+            "maxHours": 48
+          },
+          "indicators": {
+            "sma": {
+              "enabled": false,
+              "length": 0,
+              "weight": 0
+            },
+            "renko": {
+              "enabled": false,
+              "weight": 0,
+              "multiplier": 0,
+              "brickSize": 0
+            },
+            "ema": {
+              "enabled": false,
+              "short": 9,
+              "long": 21,
+              "weight": 0
+            },
+            "macd": {
+              "enabled": false,
+              "fast": 12,
+              "slow": 26,
+              "signal": 9,
+              "weight": 0
+            },
+            "adx": {
+              "enabled": false,
+              "dilength": 14,
+              "adxSmoothing": 14,
+              "weight": 0
+            },
+            "rsi": {
+              "enabled": true,
+              "length": 14,
+              "smoothing": {
+                "type": "EMA",
+                "length": 14
+              },
+              "history": 3,
+              "tresholds": {
+                "overbought": 70,
+                "oversold": 30
+              },
+              "weight": 1.2
+            },
+            "atr": {
+              "enabled": true,
+              "length": 14,
+              "weight": 0
+            },
+            "obv": {
+              "enabled": false,
+              "length": 0,
+              "weight": 0
+            },
+            "cmf": {
+              "enabled": true,
+              "length": 20,
+              "history": 3,
+              "tresholds": {
+                "overbought": 0,
+                "oversold": 0
+              },
+              "weight": 0.9
+            },
+            "bb": {
+              "enabled": true,
+              "length": 20,
+              "multiplier": 2,
+              "average": "SMA",
+              "history": 3,
+              "weight": 1.2
+            },
+            "so": {
+              "enabled": false,
+              "kPeriod": 0,
+              "dPeriod": 0,
+              "smoothing": 0,
+              "tresholds": {
+                "overbought": 0,
+                "oversold": 0
+              },
+              "weight": 0
+            },
+            "srsi": {
+              "enabled": false,
+              "rsiLength": 12,
+              "stochLength": 12,
+              "kPeriod": 3,
+              "dPeriod": 3,
+              "smoothK": 2,
+              "smoothD": 2,
+              "history": 0,
+              "tresholds": {
+                "overbought": 80,
+                "oversold": 20
+              },
+              "weight": 0
+            },
+            "dmi": {
+              "enabled": false,
+              "dmiLength": 0,
+              "adxSmoothing": 0,
+              "weight": 0,
+              "history": 0
+            },
+            "OpenAI": {
+              "enabled": false,
+              "key": "",
+              "model": "",
+              "history": "",
+              "overwrite": false
+            }
+          },
+          "periodicDirection": "SELL",
+          "hilowFixed": {
+            "sellProfitQuote": 2,
+            "buyMoveQuote": 6,
+            "stopLossQuote": 2
+          },
+          "extreme": {
+            "sellProfitQuote": 1,
+            "buyMoveQuote": 2,
+            "volatilityScale": true,
+            "volatilityLookback": 48,
+            "trendAdjust": true,
+            "maxCashCandles": 288,
+            "maxLongCandles": 192,
+            "idleForceDays": 3
+          },
+          "scoutConfirm": {
+            "enabled": true,
+            "scoutTimeframe": "3m",
+            "confirmTimeframe": "5m",
+            "scoutMinShare": 62,
+            "confirmAgreement": 68,
+            "scoutIndicators": [
+              "rsi",
+              "bb"
+            ]
+          },
+          "algorithmicAdaptive": {
+            "enabled": true,
+            "volatilityScale": true,
+            "atrLookback": 48,
+            "volatilityAgreement": true,
+            "trendAgreement": true,
+            "trendAlignedBonus": 6,
+            "trendCounterPenalty": 10,
+            "blockCounterTrendEntries": false,
+            "conflictEnabled": true,
+            "conflictMinShare": 38,
+            "conflictPenalty": 12,
+            "maxCashCandles": 288,
+            "maxLongCandles": 192,
+            "agreementEaseMax": 12,
+            "feeAwareMinProfit": true
+          },
+          "indicatorsPreset": "meanReversion"
+        },
+        {
+          "enabled": true,
+          "name": "XRP/BRL",
+          "timeframes": [
+            "5m",
+            "3m"
+          ],
+          "agreement": 65,
+          "source": "close",
+          "trend": {
+            "enabled": true,
+            "timeframe": "4h",
+            "ema": {
+              "short": 9,
+              "long": 21
+            }
+          },
+          "gridOrderSize": 0,
+          "gridRebalance": false,
+          "gridLevels": 0,
+          "gridRange": {
+            "upper": 0,
+            "lower": 0
+          },
+          "periodicQuantity": 10,
+          "periodicInterval": 60,
+          "profit": {
+            "enabled": true,
+            "minimumSell": 0.3,
+            "minimumBuy": 0.5
+          },
+          "growingMax": {
+            "buy": 0,
+            "sell": 0
+          },
+          "simulationBuyAmountQuote": 100,
+          "liveOrderExecution": {
+            "buy": "limit",
+            "sell": "limit"
+          },
+          "blockConsecutiveLoss": {
+            "enabled": true,
+            "skipEntries": 1,
+            "cooldownMinutes": 12,
+            "cooldownAfterStopLossMinutes": 30
+          },
+          "tradeRateLimit": {
+            "enabled": true,
+            "maxTradesPerDay": 8,
+            "minMinutesBetweenEntries": 18
+          },
+          "closePercentage": 0.45,
+          "maximumAgeOfOrder": 5,
+          "tradeFeePercentage": 0.1,
+          "stopLoss": {
+            "enabled": true,
+            "stopTrading": false,
+            "pnl": -7,
+            "agingPerHour": 0,
+            "hit": false,
+            "atrScale": true,
+            "atrMultiplier": 2,
+            "atrMin": 0.6,
+            "atrMax": 3.5
+          },
+          "stopLossBuy": {
+            "enabled": true,
+            "pnl": -1.5,
+            "agingPerHour": 0,
+            "atrScale": true,
+            "atrMultiplier": 2,
+            "atrMin": 0.6,
+            "atrMax": 2.5
+          },
+          "takeProfit": {
+            "enabled": true,
+            "limit": 0.5,
+            "minimum": 0.5,
+            "drop": 0.5,
+            "currentMaxSource": "update",
+            "forceAfterEnabled": false,
+            "forceAfterCandles": 1,
+            "forceAfterDrop": 0.2,
+            "forceMinProfit": 0.5,
+            "current": 0,
+            "partialClose": {
+              "enabled": true,
+              "fraction": 0.5
+            }
+          },
+          "takeProfitBuy": {
+            "enabled": true,
+            "minimum": 0.5,
+            "drop": 0.5,
+            "currentMaxSource": "update",
+            "forceAfterEnabled": false,
+            "forceAfterCandles": 1,
+            "forceAfterDrop": 0.2,
+            "forceMinProfit": 0.5,
+            "current": 0,
+            "limit": 0.5,
+            "partialClose": {
+              "enabled": true,
+              "fraction": 0.5
+            }
+          },
+          "forcedExit": {
+            "enabled": true,
+            "change": 0.25,
+            "minProfit": 0.65,
+            "candles": 24,
+            "maxHours": 48
+          },
+          "indicators": {
+            "sma": {
+              "enabled": false,
+              "length": 0,
+              "weight": 0
+            },
+            "renko": {
+              "enabled": false,
+              "weight": 0,
+              "multiplier": 0,
+              "brickSize": 0
+            },
+            "ema": {
+              "enabled": false,
+              "short": 9,
+              "long": 21,
+              "weight": 0
+            },
+            "macd": {
+              "enabled": false,
+              "fast": 12,
+              "slow": 26,
+              "signal": 9,
+              "weight": 0
+            },
+            "adx": {
+              "enabled": false,
+              "dilength": 14,
+              "adxSmoothing": 14,
+              "weight": 0
+            },
+            "rsi": {
+              "enabled": true,
+              "length": 14,
+              "smoothing": {
+                "type": "EMA",
+                "length": 14
+              },
+              "history": 3,
+              "tresholds": {
+                "overbought": 75,
+                "oversold": 25
+              },
+              "weight": 1.2
+            },
+            "atr": {
+              "enabled": true,
+              "length": 14,
+              "weight": 0
+            },
+            "obv": {
+              "enabled": false,
+              "length": 0,
+              "weight": 0
+            },
+            "cmf": {
+              "enabled": true,
+              "length": 20,
+              "history": 3,
+              "tresholds": {
+                "overbought": 0.15,
+                "oversold": -0.15
+              },
+              "weight": 0.9
+            },
+            "bb": {
+              "enabled": true,
+              "length": 20,
+              "multiplier": 2.2,
+              "average": "SMA",
+              "history": 3,
+              "weight": 1.2
+            },
+            "so": {
+              "enabled": false,
+              "kPeriod": 0,
+              "dPeriod": 0,
+              "smoothing": 0,
+              "tresholds": {
+                "overbought": 0,
+                "oversold": 0
+              },
+              "weight": 0
+            },
+            "srsi": {
+              "enabled": false,
+              "rsiLength": 12,
+              "stochLength": 12,
+              "kPeriod": 3,
+              "dPeriod": 3,
+              "smoothK": 2,
+              "smoothD": 2,
+              "history": 0,
+              "tresholds": {
+                "overbought": 80,
+                "oversold": 20
+              },
+              "weight": 0
+            },
+            "dmi": {
+              "enabled": false,
+              "dmiLength": 0,
+              "adxSmoothing": 0,
+              "weight": 0,
+              "history": 0
+            },
+            "OpenAI": {
+              "enabled": false,
+              "key": "",
+              "model": "",
+              "history": "",
+              "overwrite": false
+            }
+          },
+          "periodicDirection": "SELL",
+          "hilowFixed": {
+            "sellProfitQuote": 2,
+            "buyMoveQuote": 6,
+            "stopLossQuote": 2
+          },
+          "extreme": {
+            "sellProfitQuote": 1,
+            "buyMoveQuote": 2,
+            "volatilityScale": true,
+            "volatilityLookback": 48,
+            "trendAdjust": true,
+            "maxCashCandles": 288,
+            "maxLongCandles": 192,
+            "idleForceDays": 3
+          },
+          "scoutConfirm": {
+            "enabled": true,
+            "scoutTimeframe": "3m",
+            "confirmTimeframe": "5m",
+            "scoutMinShare": 62,
+            "confirmAgreement": 63,
+            "scoutIndicators": [
+              "rsi",
+              "bb"
+            ]
+          },
+          "algorithmicAdaptive": {
+            "enabled": true,
+            "volatilityScale": true,
+            "atrLookback": 48,
+            "volatilityAgreement": true,
+            "trendAgreement": true,
+            "trendAlignedBonus": 6,
+            "trendCounterPenalty": 10,
+            "blockCounterTrendEntries": false,
+            "conflictEnabled": true,
+            "conflictMinShare": 38,
+            "conflictPenalty": 12,
+            "maxCashCandles": 288,
+            "maxLongCandles": 192,
+            "agreementEaseMax": 12,
+            "feeAwareMinProfit": true
+          },
+          "indicatorsPreset": "meanReversionVolatile"
+        },
+        {
+          "enabled": true,
+          "name": "ETH/USDC",
+          "timeframes": [
+            "5m",
+            "3m"
+          ],
+          "agreement": 65,
+          "source": "close",
+          "trend": {
+            "enabled": true,
+            "timeframe": "4h",
+            "ema": {
+              "short": 9,
+              "long": 21
+            }
+          },
+          "gridOrderSize": 0,
+          "gridRebalance": false,
+          "gridLevels": 0,
+          "gridRange": {
+            "upper": 0,
+            "lower": 0
+          },
+          "periodicQuantity": 10,
+          "periodicInterval": 60,
+          "profit": {
+            "enabled": true,
+            "minimumSell": 0.3,
+            "minimumBuy": 0.5
+          },
+          "growingMax": {
+            "buy": 0,
+            "sell": 0
+          },
+          "simulationBuyAmountQuote": 100,
+          "liveOrderExecution": {
+            "buy": "limit",
+            "sell": "limit"
+          },
+          "blockConsecutiveLoss": {
+            "enabled": true,
+            "skipEntries": 1,
+            "cooldownMinutes": 15,
+            "cooldownAfterStopLossMinutes": 30
+          },
+          "tradeRateLimit": {
+            "enabled": true,
+            "maxTradesPerDay": 8,
+            "minMinutesBetweenEntries": 20
+          },
+          "closePercentage": 0.35,
+          "maximumAgeOfOrder": 5,
+          "tradeFeePercentage": 0.1,
+          "stopLoss": {
+            "enabled": true,
+            "stopTrading": false,
+            "pnl": -7,
+            "agingPerHour": 0,
+            "hit": false,
+            "atrScale": true,
+            "atrMultiplier": 2,
+            "atrMin": 0.5,
+            "atrMax": 3
+          },
+          "stopLossBuy": {
+            "enabled": true,
+            "pnl": -1.5,
+            "agingPerHour": 0,
+            "atrScale": true,
+            "atrMultiplier": 2,
+            "atrMin": 0.5,
+            "atrMax": 2
+          },
+          "takeProfit": {
+            "enabled": true,
+            "limit": 0.5,
+            "minimum": 0.5,
+            "drop": 0.5,
+            "currentMaxSource": "update",
+            "forceAfterEnabled": false,
+            "forceAfterCandles": 1,
+            "forceAfterDrop": 0.2,
+            "forceMinProfit": 0.5,
+            "current": 0,
+            "partialClose": {
+              "enabled": true,
+              "fraction": 0.5
+            }
+          },
+          "takeProfitBuy": {
+            "enabled": true,
+            "minimum": 0.5,
+            "drop": 0.5,
+            "currentMaxSource": "update",
+            "forceAfterEnabled": false,
+            "forceAfterCandles": 1,
+            "forceAfterDrop": 0.2,
+            "forceMinProfit": 0.5,
+            "current": 0,
+            "limit": 0.5,
+            "partialClose": {
+              "enabled": true,
+              "fraction": 0.5
+            }
+          },
+          "forcedExit": {
+            "enabled": true,
+            "change": 0.2,
+            "minProfit": 0.55,
+            "candles": 24,
+            "maxHours": 48
+          },
+          "indicators": {
+            "sma": {
+              "enabled": false,
+              "length": 0,
+              "weight": 0
+            },
+            "renko": {
+              "enabled": false,
+              "weight": 0,
+              "multiplier": 0,
+              "brickSize": 0
+            },
+            "ema": {
+              "enabled": false,
+              "short": 9,
+              "long": 21,
+              "weight": 0
+            },
+            "macd": {
+              "enabled": false,
+              "fast": 12,
+              "slow": 26,
+              "signal": 9,
+              "weight": 0
+            },
+            "adx": {
+              "enabled": false,
+              "dilength": 14,
+              "adxSmoothing": 14,
+              "weight": 0
+            },
+            "rsi": {
+              "enabled": true,
+              "length": 14,
+              "smoothing": {
+                "type": "EMA",
+                "length": 14
+              },
+              "history": 3,
+              "tresholds": {
+                "overbought": 70,
+                "oversold": 30
+              },
+              "weight": 1.2
+            },
+            "atr": {
+              "enabled": true,
+              "length": 14,
+              "weight": 0
+            },
+            "obv": {
+              "enabled": false,
+              "length": 0,
+              "weight": 0
+            },
+            "cmf": {
+              "enabled": true,
+              "length": 20,
+              "history": 3,
+              "tresholds": {
+                "overbought": 0,
+                "oversold": 0
+              },
+              "weight": 0.9
+            },
+            "bb": {
+              "enabled": true,
+              "length": 20,
+              "multiplier": 2,
+              "average": "SMA",
+              "history": 3,
+              "weight": 1.2
+            },
+            "so": {
+              "enabled": false,
+              "kPeriod": 0,
+              "dPeriod": 0,
+              "smoothing": 0,
+              "tresholds": {
+                "overbought": 0,
+                "oversold": 0
+              },
+              "weight": 0
+            },
+            "srsi": {
+              "enabled": false,
+              "rsiLength": 12,
+              "stochLength": 12,
+              "kPeriod": 3,
+              "dPeriod": 3,
+              "smoothK": 2,
+              "smoothD": 2,
+              "history": 0,
+              "tresholds": {
+                "overbought": 80,
+                "oversold": 20
+              },
+              "weight": 0
+            },
+            "dmi": {
+              "enabled": false,
+              "dmiLength": 0,
+              "adxSmoothing": 0,
+              "weight": 0,
+              "history": 0
+            },
+            "OpenAI": {
+              "enabled": false,
+              "key": "",
+              "model": "",
+              "history": "",
+              "overwrite": false
+            }
+          },
+          "periodicDirection": "SELL",
+          "hilowFixed": {
+            "sellProfitQuote": 2,
+            "buyMoveQuote": 6,
+            "stopLossQuote": 2
+          },
+          "extreme": {
+            "sellProfitQuote": 1,
+            "buyMoveQuote": 2,
+            "volatilityScale": true,
+            "volatilityLookback": 48,
+            "trendAdjust": true,
+            "maxCashCandles": 288,
+            "maxLongCandles": 192,
+            "idleForceDays": 3
+          },
+          "scoutConfirm": {
+            "enabled": true,
+            "scoutTimeframe": "3m",
+            "confirmTimeframe": "5m",
+            "scoutMinShare": 62,
+            "confirmAgreement": 63,
+            "scoutIndicators": [
+              "rsi",
+              "bb"
+            ]
+          },
+          "algorithmicAdaptive": {
+            "enabled": true,
+            "volatilityScale": true,
+            "atrLookback": 48,
+            "volatilityAgreement": true,
+            "trendAgreement": true,
+            "trendAlignedBonus": 6,
+            "trendCounterPenalty": 10,
+            "blockCounterTrendEntries": false,
+            "conflictEnabled": true,
+            "conflictMinShare": 38,
+            "conflictPenalty": 12,
+            "maxCashCandles": 288,
+            "maxLongCandles": 192,
+            "agreementEaseMax": 12,
+            "feeAwareMinProfit": true
+          },
+          "indicatorsPreset": "meanReversion"
+        }
+      ],
+      "tradeHistory": {}
+    }
+  ],
+  "simGrid": {
+    "enabled": false,
+    "configPath": "settings/grid-scout-realistic.json"
+  },
+  "running": false,
+  "simulate": true
+}

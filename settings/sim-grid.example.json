@@ -1,0 +1,21 @@
+{
+  "simulationHistoryYears": 2,
+  "variants": [
+    {},
+    {
+      "exchanges": [
+        {
+          "name": "binance",
+          "symbols": [
+            {
+              "agreement": 75,
+              "stopLoss": {
+                "pnl": -5
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

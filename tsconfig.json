@@ -1,0 +1,70 @@
+{
+  // Specify the compiler options
+  "compilerOptions": {
+	"skipLibCheck": true,
+    // Set the output directory to "dist"
+    "outDir": "./build-ts",
+    // Set the module system to "esnext"
+    "module": "ESNext",
+    // Set the ECMAScript target version to "ES2020"
+    "target": "esnext",
+    // Enable JSX support for React components
+    "jsx": "react",
+    // Specify the library files to include
+    "lib": [
+      "ES2020",
+      "dom"
+    ],
+    // Enable source maps for easier debugging
+    "sourceMap": true,
+    // Allow importing modules with default exports
+    "allowSyntheticDefaultImports": true,
+    // Specify the module resolution strategy to use
+    "moduleResolution": "node",
+    // Enable importing JSON files as modules
+    "resolveJsonModule": true,
+    // Generate declaration files
+    "declaration": true,
+    // [Optional] Enable emitting declaration map files
+    "declarationMap": true,
+    // Disallow implicit "any" types
+    "noImplicitAny": true,
+    // Disallow the use of "this" without an explicit type annotation
+    "noImplicitThis": true,
+    // Require all functions to have a return statement
+    "noImplicitReturns": true,
+    // Enable strict null checks
+    "strictNullChecks": true,
+    // [Optional] Enable decorators
+    "experimentalDecorators": true,
+    // [Optional] Enable strict property initialization checks
+    "strictPropertyInitialization": true,
+    // [Optional] Enable strict function types
+    "strictFunctionTypes": true,
+    // [Optional] Enable no unused variables check
+    "noUnusedLocals": false,
+    // [Optional] Enable no unused parameters check
+    "noUnusedParameters": true,
+    // Enable @types in src folder.
+    "baseUrl": "./",
+    "plugins": [{ "name": "typescript-plugin-css-modules" }],
+  },
+  "ts-node": {
+    "files": true,
+    "transpileOnly": true,
+    "compilerOptions": {
+		"skipLibCheck": true,
+		"baseUrl": "./",
+		"module": "ESNext", 
+		"moduleResolution": "node"
+    }
+  },
+  "typedocOptions": {
+    "entryPoints": ["./src"],
+    "entryPointStrategy": "expand",
+    "out": "public/docs"
+  },
+  // Specify the files and directories to include in compilation
+  "include": ["src/**/*.tsx", "src/**/*.ts"],
+  "exclude": ["node_modules"]
+}

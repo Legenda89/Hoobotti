@@ -1,0 +1,335 @@
+{
+  "simulationHistoryYears": 1,
+  "includeBaseline": true,
+  "maxVariants": 500,
+  "axes": [
+    {
+      "name": "stopLoss-pnl",
+      "values": [
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -1,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -1.5,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -2,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -2.5,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -3,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -3.5,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -4,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -4.5,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -5,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -5.5,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -6,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -6.5,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -7,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -7.5,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -8,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -8.5,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -9,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -9.5,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "exchanges": [
+            {
+              "name": "binance",
+              "symbols": [
+                {
+                  "stopLoss": {
+                    "enabled": true,
+                    "stopTrading": false,
+                    "pnl": -10,
+                    "agingPerHour": 0.02
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

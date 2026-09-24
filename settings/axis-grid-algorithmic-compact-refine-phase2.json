@@ -1,0 +1,173 @@
+{
+  "simulationHistoryYears": 0.5,
+  "includeBaseline": true,
+  "maxVariants": 1500,
+  "axes": [
+    {
+      "name": "takeProfit.forceAfterDrop",
+      "range": { "from": 0.12, "to": 0.18, "step": 0.06 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "forceAfterDrop": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "takeProfit.forceMinProfit",
+      "range": { "from": 0.75, "to": 1.25, "step": 0.5 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "forceMinProfit": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "takeProfitBuy.drop",
+      "range": { "from": 0.18, "to": 0.22, "step": 0.04 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "takeProfitBuy": { "enabled": true, "drop": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "takeProfitBuy.limit",
+      "range": { "from": 0.75, "to": 1.25, "step": 0.5 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "takeProfitBuy": { "enabled": true, "limit": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "algorithmicAdaptive.trendCounterPenalty",
+      "range": { "from": 0, "to": 8, "step": 8 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "algorithmicAdaptive": { "trendCounterPenalty": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "algorithmicAdaptive.agreementEaseMax",
+      "range": { "from": 0, "to": 15, "step": 15 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "algorithmicAdaptive": { "agreementEaseMax": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "algorithmicAdaptive.trendAlignedBonus",
+      "range": { "from": 0, "to": 6, "step": 6 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "algorithmicAdaptive": { "trendAlignedBonus": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "closePercentage",
+      "range": { "from": 65, "to": 85, "step": 20 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [{ "closePercentage": "$value" }]
+          }
+        ]
+      }
+    },
+    {
+      "name": "stopLoss.agingPerHour",
+      "range": { "from": 0, "to": 0.02, "step": 0.02 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "stopLoss": { "enabled": true, "agingPerHour": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "growingMax.buy",
+      "range": { "from": 80, "to": 120, "step": 40 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "mode": "algorithmic",
+            "symbols": [
+              {
+                "growingMax": { "buy": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

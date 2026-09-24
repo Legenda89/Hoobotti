@@ -1,0 +1,55 @@
+{
+  "simulationHistoryYears": 1,
+  "includeBaseline": true,
+  "maxVariants": 2000,
+  "axes": [
+    {
+      "name": "takeProfit.minimum-range",
+      "range": { "from": 2, "to": 5, "step": 0.5 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "takeProfit": { "enabled": true, "minimum": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "profit.minimumSell-range",
+      "range": { "from": 2, "to": 5, "step": 0.5 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "profit": { "enabled": true, "minimumSell": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "profit.minimumBuy-range",
+      "range": { "from": -5, "to": 2, "step": 0.5 },
+      "template": {
+        "exchanges": [
+          {
+            "name": "binance",
+            "symbols": [
+              {
+                "profit": { "enabled": true, "minimumBuy": "$value" }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
